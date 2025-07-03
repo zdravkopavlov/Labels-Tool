@@ -4,7 +4,7 @@ import os
 import sys
 import json
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 # Ensure local folder is on the import path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +64,7 @@ except Exception:
 if not FONT_CHOICES:
     FONT_CHOICES = ["DejaVuSans"]
 
+
 class LabelPrinterApp:
     def __init__(self, root: tk.Tk, settings: dict):
         self.root = root
@@ -116,6 +117,13 @@ class LabelPrinterApp:
         self._build_ui()
         self.load_session_items()
         draw_preview(self)
+
+    def _confirm_clear(self):
+        if messagebox.askyesno(
+            "Потвърждение",
+            "Сигурни ли сте, че искате да изчистите всички артикули?"
+        ):
+            self.clear_session()
 
     def _on_change(self, *args):
         # Sync start offset
@@ -204,21 +212,42 @@ class LabelPrinterApp:
         scrollbar.pack(side="right", fill="y")
         self.items_frame = ttk.Frame(canvas)
         canvas.create_window((0,0), window=self.items_frame, anchor="nw")
-        self.items_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", lambda ev: canvas.yview_scroll(int(-1*(ev.delta/120)), "units")))
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        self.items_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.bind(
+            "<Enter>",
+            lambda e: canvas.bind_all(
+                "<MouseWheel>",
+                lambda ev: canvas.yview_scroll(int(-1*(ev.delta/120)), "units")
+            )
+        )
+        canvas.bind(
+            "<Leave>",
+            lambda e: canvas.unbind_all("<MouseWheel>")
+        )
 
         # Add/Clear buttons
         btn_frame = ttk.Frame(left)
         btn_frame.pack(fill="x", pady=5)
-        ttk.Button(btn_frame, text="+ Добави", command=self._add_item).grid(row=0, column=0, sticky="w", padx=5)
-        ttk.Button(btn_frame, text="Изчисти", command=self.clear_session).grid(row=0, column=1, sticky="e", padx=5)
+
+        ttk.Button(
+            btn_frame, text="Изчисти всички", command=self._confirm_clear
+        ).grid(row=0, column=0, sticky="e", padx=5)
+        ttk.Button(btn_frame, text="+ Добави етикет +", command=self._add_item).grid(
+            row=0, column=1, sticky="w", padx=5
+        )
 
         # Start offset
         off_frame = ttk.Frame(left)
         off_frame.pack(fill="x", pady=(0,6))
         ttk.Label(off_frame, text="Стартова позиция #: ").pack(side="left")
-        spin_offset = ttk.Spinbox(off_frame, from_=1, to=999, width=4, textvariable=self.start_offset_display, command=self._on_change)
+        spin_offset = ttk.Spinbox(
+            off_frame, from_=1, to=999, width=4,
+            textvariable=self.start_offset_display,
+            command=self._on_change
+        )
         spin_offset.pack(side="left")
         for ev in ("<Return>", "<FocusOut>", "<MouseWheel>"):
             spin_offset.bind(ev, self._on_change)
@@ -228,30 +257,44 @@ class LabelPrinterApp:
         cp_fonts.pack(fill="x", pady=5)
         fonts_frame = ttk.Frame(cp_fonts.container)
         fonts_frame.pack(fill="x")
-        self._font_row(fonts_frame, 0, "Име", self.name_font_family, self.name_font_size, self.name_bold, self.name_italic)
-        self._font_row(fonts_frame, 1, "Вид", self.sub_font_family, self.sub_font_size, self.sub_bold, self.sub_italic)
-        self._font_row(fonts_frame, 2, "Цена", self.price_font_family, self.price_font_size, self.price_bold, self.price_italic)
+        self._font_row(fonts_frame, 0,
+                       "Име", self.name_font_family, self.name_font_size,
+                       self.name_bold, self.name_italic)
+        self._font_row(fonts_frame, 1,
+                       "Вид", self.sub_font_family, self.sub_font_size,
+                       self.sub_bold, self.sub_italic)
+        self._font_row(fonts_frame, 2,
+                       "Цена", self.price_font_family, self.price_font_size,
+                       self.price_bold, self.price_italic)
 
         # Collapsible Elements
         cp_elems = CollapsiblePane(left, text="Елементи")
         cp_elems.pack(fill="x", pady=5)
         elems = ttk.Frame(cp_elems.container)
         elems.pack(fill="x")
-        ttk.Checkbutton(elems, text="Лого", variable=self.chk_logo).grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        ttk.Checkbutton(elems, text="Покажи лв.", variable=self.chk_bgn).grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        ttk.Checkbutton(elems, text="Покажи €", variable=self.chk_eur).grid(row=2, column=0, sticky="w", padx=5, pady=2)
-        ttk.Checkbutton(elems, text="Водачи (preview grid)", variable=self.show_guides).grid(row=3, column=0, sticky="w", padx=5, pady=2)
+        ttk.Checkbutton(elems, text="Лого", variable=self.chk_logo).grid(
+            row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Checkbutton(elems, text="Покажи лв.", variable=self.chk_bgn).grid(
+            row=1, column=0, sticky="w", padx=5, pady=2)
+        ttk.Checkbutton(elems, text="Покажи €", variable=self.chk_eur).grid(
+            row=2, column=0, sticky="w", padx=5, pady=2)
+        ttk.Checkbutton(elems, text="Водачи (preview grid)", variable=self.show_guides).grid(
+            row=3, column=0, sticky="w", padx=5, pady=2)
 
         # Collapsible Calibration
         cp_cal = CollapsiblePane(left, text="Калибрация")
         cp_cal.pack(fill="x", pady=5)
-        cal_frame = ttk.LabelFrame(cp_cal.container, text="Отместване Калибрация (mm)")
+        cal_frame = ttk.LabelFrame(cp_cal.container, text="Отместване (mm)")
         cal_frame.pack(fill="x")
-        self._spin(cal_frame, 0, "Начало",     self.top_margin,     (-50,50), 0.1)
+        self._spin(cal_frame, 0, "Горе",     self.top_margin,     (-50,50), 0.1)
         self._spin(cal_frame, 1, "Ляво",       self.left_margin,    (-50,50), 0.1)
         self._spin(cal_frame, 2, "Редове",     self.row_correction, (-50,50), 0.1)
         self._spin(cal_frame, 3, "Колони",     self.col_gap,        (-50,50), 0.1)
-        ttk.Button(cp_cal.container, text="Калибриране", command=lambda: __import__('printer').print_alignment_grid(self)).pack(pady=5)
+        ttk.Button(
+            cp_cal.container,
+            text="Принтирай мрежа",
+            command=lambda: __import__('printer').print_alignment_grid(self)
+        ).pack(pady=5)
 
         # Preview panel
         right = ttk.Frame(self.root, padding=10)
