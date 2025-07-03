@@ -2,3 +2,6 @@ __pycache__/
 ghostscript/
 fonts/
 dist/
+settings.json
+units.json
+Labels Tool.code-workspace

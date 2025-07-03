@@ -16,7 +16,7 @@ FONTS_DIR  = BASE_DIR / "fonts"
 TEMPLATE   = SheetTemplate()
 
 NORMAL_GAP  = 2
-BIGGER_GAP  = 12
+BIGGER_GAP  = 4
 
 # ───────── build font map ──────────────────────────────────────────────
 SYSTEM_FONTS: dict[str, Path | None] = {}
