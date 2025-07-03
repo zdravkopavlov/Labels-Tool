@@ -7,7 +7,7 @@ import tempfile
 import tkinter as tk
 from PIL import Image, ImageTk
 from helpers import collect_labels
-from printer import export_pdf
+from printer import export_pdf, export_pdf_gridonly
 
 PREVIEW_DPI = 72
 # Adjust this path if your GhostScript exe lives elsewhere:
@@ -16,11 +16,17 @@ GS_EXE = os.path.join(os.path.dirname(__file__), "ghostscript", "gswin64c.exe")
 _cache_sig: str | None = None
 _cache_img: Image.Image | None = None
 
+def reset_preview_cache():
+    global _cache_sig, _cache_img
+    _cache_sig = None
+    _cache_img = None
+
 def _sheet_png(app, dpi=PREVIEW_DPI) -> Image.Image:
     global _cache_sig, _cache_img
+    labels = collect_labels(app)
     # fingerprint all relevant settings + data
     sig = hashlib.md5(repr((
-        collect_labels(app),
+        labels,
         app.start_offset.get(),
         app.left_margin.get(), app.top_margin.get(),
         app.row_correction.get(), app.col_gap.get(),
@@ -39,7 +45,14 @@ def _sheet_png(app, dpi=PREVIEW_DPI) -> Image.Image:
 
     # otherwise regenerate PDF → PNG
     pdf_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
-    export_pdf(app, pdf_path)
+
+    # ----------- KEY LOGIC ------------
+    # If no labels and grid ON, export grid only!
+    if not labels and getattr(app, "show_guides", None) and app.show_guides.get():
+        export_pdf_gridonly(app, pdf_path)
+    else:
+        export_pdf(app, pdf_path)
+    # ----------------------------------
 
     png_path = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
     subprocess.run([
@@ -75,7 +88,7 @@ def draw_preview(app):
     cv.create_image(ox, oy, anchor="nw", image=photo)
     cv.image = photo  # keep reference!
 
-    # optionally overlay the preview grid
+    # optionally overlay the preview grid (not needed for grid-only preview, but left in for overlays)
     if getattr(app, "show_guides", None) and app.show_guides.get():
         from labeltool.models import SheetTemplate
         t = SheetTemplate()

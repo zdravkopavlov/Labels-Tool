@@ -12,7 +12,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 from settings import save_settings, load_settings
-from preview import draw_preview
+from preview import draw_preview, reset_preview_cache
 from tools.fonts import list_system_fonts
 
 # CollapsiblePane widget for hiding/showing advanced controls
@@ -36,7 +36,6 @@ class CollapsiblePane(ttk.Frame):
             self.container.pack(fill="both", expand=True, padx=5, pady=5)
         else:
             self.container.forget()
-
 
 def _load_units() -> list[str]:
     base = getattr(sys, "_MEIPASS", os.path.dirname(__file__))
@@ -63,7 +62,6 @@ except Exception:
 
 if not FONT_CHOICES:
     FONT_CHOICES = ["DejaVuSans"]
-
 
 class LabelPrinterApp:
     def __init__(self, root: tk.Tk, settings: dict):
@@ -154,10 +152,14 @@ class LabelPrinterApp:
         })
         self.save_session_items()
         save_settings(self.settings)
-        # Preview redraw or clear
+        # --- Always show grid if enabled, even with no items, and reset cache!
         if hasattr(self, 'preview_canvas'):
-            if not self.items:
+            if not self.items and self.show_guides.get():
+                reset_preview_cache()
+                draw_preview(self)
+            elif not self.items:
                 self.preview_canvas.delete("all")
+                self.preview_canvas.image = None
             else:
                 draw_preview(self)
 
@@ -375,6 +377,12 @@ class LabelPrinterApp:
         ent_bgn.bind("<FocusOut>", update_eur)
         spin_copies.config(command=self._on_change)
         cmb_unit.bind("<<ComboboxSelected>>", lambda e: self._on_change())
+
+        # Live update on name/type entry
+        ent_name.bind("<KeyRelease>", lambda e: self._on_change())
+        ent_sub.bind("<KeyRelease>", lambda e: self._on_change())
+        ent_name.bind("<FocusOut>", lambda e: self._on_change())
+        ent_sub.bind("<FocusOut>", lambda e: self._on_change())
 
         self.items.append({
             "frame": frame,

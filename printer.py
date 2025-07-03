@@ -203,8 +203,6 @@ def print_alignment_grid(app):
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     tmp.close()
     c = canvas.Canvas(tmp.name, pagesize=A4)
-    _draw_grid = lambda cc: None  # replaced by preview._draw_grid if desired
-    # but original version prints rectangles:
     for r in range(TEMPLATE.rows):
         for col in range(TEMPLATE.cols):
             x_mm = 7 + app.left_margin.get() + \
@@ -227,3 +225,23 @@ def print_alignment_grid(app):
     except Exception as e:
         from tkinter import messagebox
         messagebox.showerror("Print error", str(e))
+
+# --- GRID ONLY EXPORT FOR PREVIEW ---
+def export_pdf_gridonly(app, path: str | os.PathLike):
+    c = canvas.Canvas(str(path), pagesize=A4)
+    TEMPLATE = SheetTemplate()
+    for r in range(TEMPLATE.rows):
+        for col in range(TEMPLATE.cols):
+            x_mm = 7 + app.left_margin.get() + \
+                   col * (TEMPLATE.label_w_mm + TEMPLATE.col_gap_mm + app.col_gap.get())
+            y_mm = app.top_margin.get() + \
+                   r * (TEMPLATE.label_h_mm + TEMPLATE.row_gap_mm) + \
+                   app.row_correction.get() * r
+            c.rect(
+                mm_to_pt(x_mm),
+                mm_to_pt(297 - y_mm - TEMPLATE.label_h_mm),
+                mm_to_pt(TEMPLATE.label_w_mm),
+                mm_to_pt(TEMPLATE.label_h_mm),
+                stroke=1, fill=0
+            )
+    c.save()
