@@ -1,7 +1,8 @@
-# main.py
 import tkinter as tk
 from tkinter import filedialog
 import csv
+import os
+import sys
 from settings import load_settings
 from ui import LabelPrinterApp
 
@@ -40,6 +41,17 @@ def import_csv(app):
 
 if __name__ == "__main__":
     root = tk.Tk()
+    # Robustly set window/taskbar icon - works from source and PyInstaller EXE, does not crash if missing
+    try:
+        if getattr(sys, 'frozen', False):
+            # Running from PyInstaller bundle
+            icon_path = os.path.join(sys._MEIPASS, "label_tool_icon_house_S.ico")
+        else:
+            icon_path = "label_tool_icon_house_S.ico"
+        root.iconbitmap(icon_path)
+    except Exception:
+        pass  # Fail silently if the icon is missing or cannot be set
+
     app = LabelPrinterApp(root, load_settings())
 
     menubar = tk.Menu(root)

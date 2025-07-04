@@ -55,11 +55,17 @@ def _sheet_png(app, dpi=PREVIEW_DPI) -> Image.Image:
     # ----------------------------------
 
     png_path = tempfile.NamedTemporaryFile(delete=False, suffix=".png").name
+
+    import sys
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NO_WINDOW
+
     subprocess.run([
         GS_EXE,
         "-dNOPAUSE","-dBATCH","-sDEVICE=png16m",
         f"-r{dpi}", f"-sOutputFile={png_path}", pdf_path
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, creationflags=creationflags)
 
     img = Image.open(png_path).convert("RGB")
     _cache_sig, _cache_img = sig, img.copy()
@@ -67,6 +73,7 @@ def _sheet_png(app, dpi=PREVIEW_DPI) -> Image.Image:
     os.unlink(pdf_path)
     os.unlink(png_path)
     return img
+
 
 def draw_preview(app):
     cv: tk.Canvas = app.preview_canvas

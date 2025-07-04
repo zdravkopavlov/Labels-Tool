@@ -2,7 +2,9 @@ __pycache__/
 ghostscript/
 fonts/
 dist/
+build/
 settings.json
 units.json
 Labels Tool.code-workspace
 Build EXE.txt
+*.spec
