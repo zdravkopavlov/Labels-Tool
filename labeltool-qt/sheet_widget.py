@@ -6,12 +6,10 @@ from PyQt5.QtPrintSupport import QPrinter
 from PyQt5.QtGui import QPainter, QFont
 from label_widget import LabelWidget
 
-# --- ClickableFrame lets us catch clicks on the empty area of the grid ---
 class ClickableFrame(QFrame):
     backgroundClicked = pyqtSignal()
 
     def mousePressEvent(self, event):
-        # Only emit if click is not on a child widget (label)
         if self.childAt(event.pos()) is None:
             self.backgroundClicked.emit()
         else:
@@ -31,13 +29,11 @@ class SheetWidget(QWidget):
         self.scroll.setWidgetResizable(True)
         outer.addWidget(self.scroll)
 
-        # Use ClickableFrame to catch clicks on the grid background!
         self.sheet_frame = ClickableFrame()
         self.sheet_frame.backgroundClicked.connect(self.clear_selection)
         self.sheet_layout = QGridLayout(self.sheet_frame)
-        # --- Where to change sheet/grid margin and spacing ---
-        self.sheet_layout.setContentsMargins(12, 12, 12, 12)  # (L, T, R, B) around the whole grid
-        self.sheet_layout.setSpacing(8)  # Space between labels
+        self.sheet_layout.setContentsMargins(12, 12, 12, 12)
+        self.sheet_layout.setSpacing(8)
         self.sheet_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.scroll.setWidget(self.sheet_frame)
 
@@ -59,7 +55,6 @@ class SheetWidget(QWidget):
         # Clipboard for copy/paste
         self.copied_label_data = None
 
-        # Enable key event filtering for Ctrl+C/V
         self.installEventFilter(self)
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -67,18 +62,15 @@ class SheetWidget(QWidget):
         idx = self.labels.index(label)
         modifiers = QApplication.keyboardModifiers()
         if modifiers & Qt.ControlModifier:
-            # Ctrl+Click: Toggle selection
             if idx in self.selected_indexes:
                 self.selected_indexes.remove(idx)
             else:
                 self.selected_indexes.add(idx)
             self.last_clicked = idx
         elif modifiers & Qt.ShiftModifier and self.last_clicked is not None:
-            # Shift+Click: Select range
             rng = range(min(self.last_clicked, idx), max(self.last_clicked, idx) + 1)
             self.selected_indexes.update(rng)
         else:
-            # Single click: select only this
             self.selected_indexes = {idx}
             self.last_clicked = idx
         self.update_selection()
@@ -101,7 +93,6 @@ class SheetWidget(QWidget):
             super().keyPressEvent(event)
 
     def eventFilter(self, obj, event):
-        # Forward key presses to keyPressEvent so Ctrl+C/V work even when label field is focused
         if event.type() == event.KeyPress:
             self.keyPressEvent(event)
         return super().eventFilter(obj, event)
@@ -109,24 +100,16 @@ class SheetWidget(QWidget):
     def copy_selected_label(self):
         if not self.selected_indexes:
             return
-        # Copy the first selected label's data
         idx = next(iter(self.selected_indexes))
         label = self.labels[idx]
-        self.copied_label_data = (
-            label.get_name(),
-            label.get_type(),
-            label.get_price()
-        )
+        label._copy()  # copies to LabelWidget._copied_content
 
     def paste_to_selected_labels(self):
-        if not self.selected_indexes or not self.copied_label_data:
+        if not self.selected_indexes or not LabelWidget._copied_content:
             return
-        name, typ, price = self.copied_label_data
         for idx in self.selected_indexes:
             label = self.labels[idx]
-            label.set_name(name)
-            label.set_type(typ)
-            label.set_price(price)
+            label._paste()
 
     def print_sheet(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf)")
@@ -151,32 +134,47 @@ class SheetWidget(QWidget):
         painter = QPainter(printer)
         font_name = "Arial"
         for idx, label in enumerate(self.labels):
+            data = label.get_export_data()
             r, c = divmod(idx, cols)
             x = margin_left_mm + c * (label_w_mm + col_gap_mm)
             y = margin_top_mm + r * (label_h_mm + row_gap_mm)
             x_pt, y_pt = mm_to_pt(x), mm_to_pt(y)
             w_pt, h_pt = mm_to_pt(label_w_mm), mm_to_pt(label_h_mm)
 
-            # Only draw text if there's anything entered:
-            if label.get_name() or label.get_type() or label.get_price():
+            if data["name"] or data["type"] or data["price_bgn"] or data["price_eur"]:
                 margin_inside = mm_to_pt(2)
+                align = Qt.AlignLeft if data["logo"] else Qt.AlignCenter
                 text_x = x_pt + margin_inside
                 text_y = y_pt + margin_inside + 18
 
                 painter.setFont(QFont(font_name, 14, QFont.Bold))
                 painter.drawText(
                     int(text_x), int(text_y), int(w_pt - 2 * margin_inside), 20,
-                    Qt.AlignLeft, label.get_name()
+                    align, data["name"]
                 )
                 painter.setFont(QFont(font_name, 10))
                 painter.drawText(
                     int(text_x), int(text_y + 20), int(w_pt - 2 * margin_inside), 16,
-                    Qt.AlignLeft, label.get_type()
+                    align, data["type"]
                 )
-                painter.setFont(QFont(font_name, 11))
+                # BGN (always with "лв.")
+                painter.setFont(QFont(font_name, 13, QFont.Bold))
+                bgn_line = (data["price_bgn"] + " лв.") if data["price_bgn"] else ""
                 painter.drawText(
-                    int(text_x), int(text_y + 36), int(w_pt - 2 * margin_inside), 16,
-                    Qt.AlignLeft, label.get_price()
+                    int(text_x), int(text_y + 38), int(w_pt - 2 * margin_inside), 18,
+                    align, bgn_line
+               )
+ 
+                # EUR (always with "€" and unit if present, inline)
+                eur_line = data["price_eur"]
+                if eur_line:
+                    eur_line += " €"
+                    if data["unit_eur"]:
+                        eur_line += " / " + data["unit_eur"]
+                painter.setFont(QFont(font_name, 13, QFont.Bold))
+                painter.drawText(
+                    int(text_x), int(text_y + 56), int(w_pt - 2 * margin_inside), 18,
+                    align, eur_line
                 )
 
         painter.end()
