@@ -1,10 +1,21 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QPushButton, QFrame, QGridLayout, QFileDialog, QApplication
+    QWidget, QVBoxLayout, QScrollArea, QPushButton, QGridLayout, QFileDialog, QApplication, QFrame
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtPrintSupport import QPrinter
 from PyQt5.QtGui import QPainter, QFont
 from label_widget import LabelWidget
+
+# --- ClickableFrame lets us catch clicks on the empty area of the grid ---
+class ClickableFrame(QFrame):
+    backgroundClicked = pyqtSignal()
+
+    def mousePressEvent(self, event):
+        # Only emit if click is not on a child widget (label)
+        if self.childAt(event.pos()) is None:
+            self.backgroundClicked.emit()
+        else:
+            super().mousePressEvent(event)
 
 class SheetWidget(QWidget):
     def __init__(self, parent=None):
@@ -20,10 +31,13 @@ class SheetWidget(QWidget):
         self.scroll.setWidgetResizable(True)
         outer.addWidget(self.scroll)
 
-        self.sheet_frame = QFrame()
+        # Use ClickableFrame to catch clicks on the grid background!
+        self.sheet_frame = ClickableFrame()
+        self.sheet_frame.backgroundClicked.connect(self.clear_selection)
         self.sheet_layout = QGridLayout(self.sheet_frame)
-        self.sheet_layout.setContentsMargins(12, 12, 12, 12)
-        self.sheet_layout.setSpacing(8)
+        # --- Where to change sheet/grid margin and spacing ---
+        self.sheet_layout.setContentsMargins(12, 12, 12, 12)  # (L, T, R, B) around the whole grid
+        self.sheet_layout.setSpacing(8)  # Space between labels
         self.sheet_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.scroll.setWidget(self.sheet_frame)
 
@@ -45,7 +59,7 @@ class SheetWidget(QWidget):
         # Clipboard for copy/paste
         self.copied_label_data = None
 
-        # Enable key event filtering
+        # Enable key event filtering for Ctrl+C/V
         self.installEventFilter(self)
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -67,6 +81,11 @@ class SheetWidget(QWidget):
             # Single click: select only this
             self.selected_indexes = {idx}
             self.last_clicked = idx
+        self.update_selection()
+
+    def clear_selection(self):
+        self.selected_indexes = set()
+        self.last_clicked = None
         self.update_selection()
 
     def update_selection(self):

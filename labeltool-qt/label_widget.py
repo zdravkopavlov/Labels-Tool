@@ -9,8 +9,10 @@ class LabelWidget(QWidget):
     def __init__(self, name="", subtype="", price_bgn="", unit_bgn="/m²", price_eur="", unit_eur="/m²", parent=None):
         super().__init__(parent)
         self._selected = False
+        self._hovered = False
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(4, 4, 4, 4)
+        # 8 pixels for more "selectable" space (change here to adjust!)
+        main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(2)
         self.setLayout(main_layout)
         self.setFixedSize(167, 100)
@@ -29,10 +31,9 @@ class LabelWidget(QWidget):
         self.bg_widget.setLayout(grid)
         main_layout.addWidget(self.bg_widget)
 
-        # Utility for bright placeholder text
         def set_placeholder_bright(widget):
             pal = widget.palette()
-            pal.setColor(QPalette.PlaceholderText, QColor("#dddddd"))
+            pal.setColor(QPalette.PlaceholderText, QColor("#cccccc"))
             widget.setPalette(pal)
 
         border_css = "border: 0.5px dashed #999999; border-radius: 4px;"
@@ -102,6 +103,16 @@ class LabelWidget(QWidget):
     def mousePressEvent(self, event):
         self.clicked.emit(self, event)
 
+    def enterEvent(self, event):
+        self._hovered = True
+        self.setCursor(Qt.PointingHandCursor)
+        self.update_style()
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.setCursor(Qt.ArrowCursor)
+        self.update_style()
+
     def set_selected(self, sel):
         self._selected = sel
         self.update_style()
@@ -109,6 +120,9 @@ class LabelWidget(QWidget):
     def update_style(self):
         if self._selected:
             outline = "#008cff"
+            outline_width = "3px"
+        elif self._hovered:
+            outline = "#888888"
             outline_width = "3px"
         else:
             outline = "#888888"
