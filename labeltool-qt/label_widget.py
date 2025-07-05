@@ -39,7 +39,7 @@ class LabelWidget(QWidget):
         outer_layout.setContentsMargins(8, 14, 8, 8)
         outer_layout.setSpacing(8)
         self.setLayout(outer_layout)
-        self.setFixedSize(240, 100)
+        self.setFixedSize(240, 160)
 
         self.logo_label = QLabel()
         self.logo_label.setFixedSize(40, 40)
