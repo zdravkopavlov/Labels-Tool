@@ -1,16 +1,10 @@
-from PyQt5.QtWidgets import QApplication, QMainWindow
-from sheet_widget import SheetWidget
 import sys
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("LabelTool QT Prototype")
-        self.setCentralWidget(SheetWidget())
+from PyQt5.QtWidgets import QApplication
+from sheet_widget import SheetWidget
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MainWindow()
-    window.resize(400, 500)
+    window = SheetWidget()
+    window.resize(800, 1200)
     window.show()
     sys.exit(app.exec_())
