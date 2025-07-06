@@ -85,7 +85,9 @@ class LabelWidget(QWidget):
 
         self.price_eur_edit = QLineEdit()
         self.price_eur_edit.setFont(QFont("Arial", 14, QFont.Bold))
-        self.price_eur_edit.setPlaceholderText("0.00 €")
+        self.price_eur_edit.setPlaceholderText("€0.00")  # Moved € sign in front
+        self.price_bgn_edit.textChanged.connect(lambda: self.convert_bgn_to_eur())
+        self.price_eur_edit.textChanged.connect(lambda: self.convert_eur_to_bgn())
         self._set_placeholder_bright(self.price_eur_edit)
         self.price_eur_edit.setStyleSheet(borderless)
         self.price_eur_edit.setAlignment(Qt.AlignCenter)
@@ -261,6 +263,31 @@ class LabelWidget(QWidget):
         self._show_logo = show_logo
         self.logo_label.setVisible(show_logo)
         self.update_style()
+
+    
+    def convert_bgn_to_eur(self):
+        if getattr(self, "_updating", False):
+            return
+        try:
+            val = self.price_bgn_edit.text().replace(" лв.", "").strip().replace(",", ".")
+            num = round(float(val), 2)
+            self._updating = True
+            self.price_eur_edit.setText(f"€{num / 1.95583:.2f}")
+            self._updating = False
+        except:
+            pass
+
+    def convert_eur_to_bgn(self):
+        if getattr(self, "_updating", False):
+            return
+        try:
+            val = self.price_eur_edit.text().replace("€", "").strip().replace(",", ".")
+            num = round(float(val), 2)
+            self._updating = True
+            self.price_bgn_edit.setText(f"{num * 1.95583:.2f} лв.")
+            self._updating = False
+        except:
+            pass
 
     def get_name(self):
         return self.name_edit.text()

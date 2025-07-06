@@ -123,7 +123,7 @@ class SheetPreview(QGraphicsView):
 class SheetEditor(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Sheet Setup Editor (Prototype)")
+        self.setWindowTitle("Sheet Setup Editor")
         self.setMinimumSize(900, 700)
         main = QVBoxLayout(self)
         layout = QHBoxLayout()
@@ -133,7 +133,6 @@ class SheetEditor(QWidget):
         left = QVBoxLayout()
         layout.addLayout(left, 0)
 
-        fontb = QFont("Arial", 10, QFont.Bold)
         # Label size
         left.addWidget(QLabel("<b>Label size</b>"))
         hl = QHBoxLayout()
@@ -225,7 +224,6 @@ class SheetEditor(QWidget):
         self.refresh()
 
     def get_settings(self):
-        # Parse all fields safely
         def parse(val, fallback):
             try:
                 return float(val)
@@ -266,9 +264,3 @@ class SheetEditor(QWidget):
             self.in_rows.setValue(int(settings.get("rows", 7)))
             self.in_cols.setValue(int(settings.get("cols", 3)))
             self.refresh()
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    win = SheetEditor()
-    win.show()
-    sys.exit(app.exec_())

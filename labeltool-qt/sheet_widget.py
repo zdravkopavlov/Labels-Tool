@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QPushButton, QGridLayout, QFileDialog, QApplication, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QGridLayout, QFileDialog, QApplication, QFrame
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtPrintSupport import QPrinter
@@ -20,10 +20,20 @@ class SheetWidget(QWidget):
         super().__init__(parent)
         outer = QVBoxLayout(self)
         self.setLayout(outer)
-
-        self.print_btn = QPushButton("Print Sheet (Export PDF)")
+        # Compact horizontal layout for print buttons
+        btn_row = QHBoxLayout()
+        self.print_btn = QPushButton("Запази PDF")
         self.print_btn.clicked.connect(self.print_sheet)
-        outer.addWidget(self.print_btn)
+        btn_row.addWidget(self.print_btn)
+
+        self.print_btn2 = QPushButton("Печатай")
+        self.print_btn2.clicked.connect(self.print_exact_sheet)
+        btn_row.addWidget(self.print_btn2)
+
+        outer.addLayout(btn_row)
+
+
+        
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -178,3 +188,80 @@ class SheetWidget(QWidget):
                 )
 
         painter.end()
+
+    def print_exact_sheet(self):
+        from PyQt5.QtPrintSupport import QPrinter
+        from PyQt5.QtGui import QPainter, QFont
+        from PyQt5.QtWidgets import QFileDialog
+        from PyQt5.QtCore import Qt
+        import json
+        import os
+
+        if not os.path.exists("3x7.json"):
+            print("Missing layout. Please save a sheet setup first.")
+            return
+
+        with open("3x7.json", "r", encoding="utf-8") as f:
+            settings = json.load(f)
+
+        path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer.setOutputFileName(path)
+        printer.setPageSize(QPrinter.A4)
+
+        mm_to_pt = lambda mm: mm * 72 / 25.4
+        a4_w_mm, a4_h_mm = 210, 297
+        a4_w_pt = mm_to_pt(a4_w_mm)
+        a4_h_pt = mm_to_pt(a4_h_mm)
+
+        page_rect = printer.pageRect()
+        page_w_pt, page_h_pt = page_rect.width(), page_rect.height()
+        scale = min(page_w_pt / a4_w_pt, page_h_pt / a4_h_pt)
+        offset_x = (page_w_pt - a4_w_pt * scale) / 2
+        offset_y = (page_h_pt - a4_h_pt * scale) / 2
+
+        painter = QPainter(printer)
+        painter.translate(offset_x, offset_y)
+        painter.scale(scale, scale)
+
+        margin_left = settings.get("margin_left_mm", 10)
+        margin_top = settings.get("margin_top_mm", 10)
+        col_gap = settings.get("col_gap_mm", 2.5)
+        row_gap = settings.get("row_gap_mm", 0)
+        label_w = settings.get("label_width_mm", 63.5)
+        label_h = settings.get("label_height_mm", 38.1)
+        cols = settings.get("cols", 3)
+
+        for idx, label in enumerate(self.labels):
+            data = label.get_export_data()
+            r, c = divmod(idx, cols)
+            x = mm_to_pt(margin_left + c * (label_w + col_gap))
+            y = mm_to_pt(margin_top + r * (label_h + row_gap))
+            w = mm_to_pt(label_w)
+            h = mm_to_pt(label_h)
+            margin = mm_to_pt(2)
+            align = Qt.AlignLeft if data["logo"] else Qt.AlignCenter
+            tx, ty = x + margin, y + margin + 18
+
+            painter.setFont(QFont("Arial", 14, QFont.Bold))
+            painter.drawText(int(tx), int(ty), int(w - 2*margin), 20, align, data["name"])
+            painter.setFont(QFont("Arial", 10))
+            painter.drawText(int(tx), int(ty + 20), int(w - 2*margin), 16, align, data["type"])
+
+            painter.setFont(QFont("Arial", 13, QFont.Bold))
+            if data["price_bgn"]:
+                painter.drawText(int(tx), int(ty + 38), int(w - 2*margin), 18, align, data["price_bgn"] + " лв.")
+
+            if data["price_eur"]:
+                eur = "€" + data["price_eur"]
+                if data["unit_eur"]:
+                    eur += " / " + data["unit_eur"]
+                painter.drawText(int(tx), int(ty + 56), int(w - 2*margin), 18, align, eur)
+
+        painter.end()
+
+
