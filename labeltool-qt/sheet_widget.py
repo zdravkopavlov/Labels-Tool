@@ -1,300 +1,259 @@
+import os
+import json
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QGridLayout, QFileDialog, QApplication, QFrame
+    QApplication,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QFileDialog, QShortcut
 )
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtPrintSupport import QPrinter
-from PyQt5.QtGui import QPainter, QFont
+from PyQt5.QtCore import Qt, QEvent
+from PyQt5.QtGui import QPainter, QFont, QFontMetrics, QKeySequence
+from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 from label_widget import LabelWidget
 
-class ClickableFrame(QFrame):
-    backgroundClicked = pyqtSignal()
+# ─── CONFIG PATHS ─────────────────────────────────────────────────────────────
+BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR   = os.path.join(BASE_DIR, "config")
+os.makedirs(CONFIG_DIR, exist_ok=True)
+SESSION_PATH = os.path.join(CONFIG_DIR, "session.json")
+SETTINGS_PATH= os.path.join(CONFIG_DIR, "settings.json")
+# ──────────────────────────────────────────────────────────────────────────────
 
-    def mousePressEvent(self, event):
-        if self.childAt(event.pos()) is None:
-            self.backgroundClicked.emit()
-        else:
-            super().mousePressEvent(event)
-
-import os
-os.makedirs("config", exist_ok=True)
+def get_sheet_settings_from_tabs(self):
+    p = self.parent()
+    while p:
+        if hasattr(p, "count"):
+            for i in range(p.count()):
+                tab = p.widget(i)
+                if hasattr(tab, "get_settings"):
+                    return tab.get_settings()
+        p = p.parent()
+    # fallback defaults
+    return {
+        "label_width_mm": 63.5,
+        "label_height_mm": 38.1,
+        "margin_top_mm": 10,
+        "margin_left_mm": 10,
+        "row_gap_mm": 0,
+        "col_gap_mm": 2.0,
+        "rows": 7,
+        "cols": 3,
+    }
 
 class SheetWidget(QWidget):
-    def save_session(self):
-        import json
-        data = [label.get_export_data() for label in self.labels]
-        try:
-            with open("config/session.json", "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print("Failed to save session:", e)
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Labels Tool")
 
-    def load_session(self):
-        import json
-        import os
-        path = "config/session.json"
-        if not os.path.exists(path):
-            return
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            for i, label_data in enumerate(data):
-                if i >= len(self.labels):
-                    break
-                self.labels[i].set_name(label_data.get("name", ""))
-                self.labels[i].set_type(label_data.get("type", ""))
-                self.labels[i].set_price(label_data.get("price_bgn", ""))
-                self.labels[i].set_price_eur(label_data.get("price_eur", ""))
-                self.labels[i].set_unit_eur_text(label_data.get("unit_eur", ""))
-                self.labels[i].set_logo(label_data.get("logo", False))
-        except Exception as e:
-            print("Failed to load session:", e)
+        # Layout
+        self.layout = QVBoxLayout(self)
+        tl = QHBoxLayout(); self.layout.addLayout(tl)
+        self.export_pdf_btn = QPushButton("Запази PDF"); tl.addWidget(self.export_pdf_btn)
+        self.print_btn      = QPushButton("Печатай");  tl.addWidget(self.print_btn)
+        tl.addStretch(1)
+        self.export_pdf_btn.clicked.connect(self.export_pdf)
+        self.print_btn.clicked.connect(self.print_labels)
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        outer = QVBoxLayout(self)
-        self.setLayout(outer)
+        # Load sheet settings
+        self.sheet_settings = get_sheet_settings_from_tabs(self)
+        if os.path.exists(SETTINGS_PATH):
+            try:
+                self.sheet_settings = json.load(open(SETTINGS_PATH, "r", encoding="utf-8"))
+            except:
+                pass
 
-        
-        btn_row = QHBoxLayout()
-        self.print_btn = QPushButton("Запази PDF")
-        self.print_btn.clicked.connect(self.print_sheet)
-        btn_row.addWidget(self.print_btn)
+        # Scroll area + grid
+        self.labels_area = QScrollArea()
+        self.labels_area.setWidgetResizable(True)
+        self.layout.addWidget(self.labels_area)
+        self.selected_indexes = []
+        self.populate_grid()
 
-        self.print_btn2 = QPushButton("Печатай")
-        self.print_btn2.clicked.connect(self.print_exact_sheet)
-        btn_row.addWidget(self.print_btn2)
-        outer.addLayout(btn_row)
+        # Install event filter for blank-space clicks
+        self.labels_area.viewport().installEventFilter(self)
 
-        self.print_btn.clicked.connect(self.print_sheet)
-        
+        # Load label session
+        if os.path.exists(SESSION_PATH):
+            try:
+                data = json.load(open(SESSION_PATH, "r", encoding="utf-8"))
+                for i, item in enumerate(data):
+                    if i < len(self.labels):
+                        lbl = self.labels[i]
+                        lbl.set_name(item["name"])
+                        lbl.set_type(item["type"])
+                        lbl.set_price(item["price_bgn"])
+                        lbl.set_price_eur(item["price_eur"])
+                        lbl.set_unit_eur_text(item["unit_eur"])
+                        lbl.set_logo(item["logo"])
+            except:
+                pass
 
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        outer.addWidget(self.scroll)
+        # Global shortcuts
+        self.copy_sc = QShortcut(QKeySequence("Ctrl+C"), self)
+        self.copy_sc.setContext(Qt.ApplicationShortcut)
+        self.copy_sc.activated.connect(self.copy_selected)
+        self.paste_sc = QShortcut(QKeySequence("Ctrl+V"), self)
+        self.paste_sc.setContext(Qt.ApplicationShortcut)
+        self.paste_sc.activated.connect(self.paste_selected)
 
-        self.sheet_frame = ClickableFrame()
-        self.sheet_frame.backgroundClicked.connect(self.clear_selection)
-        self.sheet_layout = QGridLayout(self.sheet_frame)
-        self.sheet_layout.setContentsMargins(12, 12, 12, 12)
-        self.sheet_layout.setSpacing(8)
-        self.sheet_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.scroll.setWidget(self.sheet_frame)
+    def populate_grid(self):
+        # Clear old widget
+        if self.labels_area.widget():
+            self.labels_area.takeWidget().deleteLater()
 
-        self.rows = 7
-        self.cols = 3
+        self.labels = []
+        container = QWidget()
+        lay = QVBoxLayout(container)
+        lay.setContentsMargins(12, 12, 12, 12)
 
-        # Always create all 21 label widgets
-        self.labels = [LabelWidget() for _ in range(self.rows * self.cols)]
-        for idx, label in enumerate(self.labels):
-            self.sheet_layout.addWidget(label, idx // self.cols, idx % self.cols)
-            label.clicked.connect(self.handle_label_click)
-            label.changed.connect(self.save_session)
+        ls = self.sheet_settings
+        rows, cols = ls["rows"], ls["cols"]
+        for r in range(rows):
+            hb = QHBoxLayout()
+            hb.setSpacing(int(ls["col_gap_mm"] * 0.8))
+            for c in range(cols):
+                lbl = LabelWidget()
+                lbl.setMinimumHeight(130)
+                lbl.setMaximumHeight(120)
+                lbl.clicked.connect(self.on_label_clicked)
+                lbl.changed.connect(self._auto_save_session)
+                self.labels.append(lbl)
+                hb.addWidget(lbl)
+            lay.addLayout(hb)
+            if r < rows - 1:
+                lay.addSpacing(int(ls["row_gap_mm"] * 0.8))
 
-        # Multi-selection
-        self.selected_indexes = set()
-        self.last_clicked = None
-
+        container.setMinimumHeight(120 * rows)
+        self.labels_area.setWidget(container)
         self.update_selection()
 
-        # Clipboard for copy/paste
-        self.copied_label_data = None
-
-        self.installEventFilter(self)
-        self.setFocusPolicy(Qt.StrongFocus)
-        self.load_session()
-
-    def handle_label_click(self, label, event):
+    def on_label_clicked(self, label, event):
         idx = self.labels.index(label)
-        modifiers = QApplication.keyboardModifiers()
-        if modifiers & Qt.ControlModifier:
+        mods = QApplication.keyboardModifiers()
+        if mods & Qt.ControlModifier:
             if idx in self.selected_indexes:
                 self.selected_indexes.remove(idx)
             else:
-                self.selected_indexes.add(idx)
-            self.last_clicked = idx
-        elif modifiers & Qt.ShiftModifier and self.last_clicked is not None:
-            rng = range(min(self.last_clicked, idx), max(self.last_clicked, idx) + 1)
-            self.selected_indexes.update(rng)
+                self.selected_indexes.append(idx)
+        elif mods & Qt.ShiftModifier and self.selected_indexes:
+            start = min(self.selected_indexes)
+            end = idx
+            for i in range(min(start, end), max(start, end) + 1):
+                if i not in self.selected_indexes:
+                    self.selected_indexes.append(i)
         else:
-            self.selected_indexes = {idx}
-            self.last_clicked = idx
-        self.update_selection()
-
-    def clear_selection(self):
-        self.selected_indexes = set()
-        self.last_clicked = None
+            # single select
+            for i in self.selected_indexes:
+                self.labels[i].set_selected(False)
+            self.selected_indexes = [idx]
         self.update_selection()
 
     def update_selection(self):
-        for i, label in enumerate(self.labels):
-            label.set_selected(i in self.selected_indexes)
+        for i, lbl in enumerate(self.labels):
+            lbl.set_selected(i in self.selected_indexes)
 
-    def keyPressEvent(self, event):
-        if (event.modifiers() & Qt.ControlModifier) and event.key() == Qt.Key_C:
-            self.copy_selected_label()
-        elif (event.modifiers() & Qt.ControlModifier) and event.key() == Qt.Key_V:
-            self.paste_to_selected_labels()
-        else:
-            super().keyPressEvent(event)
+    def _auto_save_session(self):
+        try:
+            data = [l.get_export_data() for l in self.labels]
+            with open(SESSION_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except:
+            pass
 
-    def eventFilter(self, obj, event):
-        if event.type() == event.KeyPress:
-            self.keyPressEvent(event)
-        return super().eventFilter(obj, event)
-
-    def copy_selected_label(self):
+    def copy_selected(self):
         if not self.selected_indexes:
             return
-        idx = next(iter(self.selected_indexes))
-        label = self.labels[idx]
-        label._copy()  # copies to LabelWidget._copied_content
+        self.labels[self.selected_indexes[0]]._copy()
 
-    def paste_to_selected_labels(self):
-        if not self.selected_indexes or not LabelWidget._copied_content:
+    def paste_selected(self):
+        data = getattr(LabelWidget, "_copied_content", None)
+        if not data or not self.selected_indexes:
             return
         for idx in self.selected_indexes:
-            label = self.labels[idx]
-            label._paste()
+            lbl = self.labels[idx]
+            lbl.name_edit.setText(data[0])
+            lbl.subtype_edit.setText(data[1])
+            lbl.price_bgn_edit.setText(data[2])
+            lbl.price_eur_edit.setText(data[3])
+            lbl.set_unit_eur(data[4])
+        self._auto_save_session()
 
-    def print_sheet(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf)")
-        if not path:
+    def export_pdf(self):
+        fn, _ = QFileDialog.getSaveFileName(self, "Export to PDF", "", "PDF Files (*.pdf)")
+        if not fn:
             return
-
-        printer = QPrinter()
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setOutputFileName(fn)
         printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setOutputFileName(path)
         printer.setPageSize(printer.A4)
-
-        label_w_mm = 63.5
-        label_h_mm = 38.1
-        cols, rows = self.cols, self.rows
-        margin_left_mm = 10
-        margin_top_mm = 10
-        col_gap_mm = 2.5
-        row_gap_mm = 0
-
-        mm_to_pt = lambda mm: mm * 72 / 25.4
-
         painter = QPainter(printer)
-        font_name = "Arial"
-        for idx, label in enumerate(self.labels):
-            data = label.get_export_data()
-            r, c = divmod(idx, cols)
-            x = margin_left_mm + c * (label_w_mm + col_gap_mm)
-            y = margin_top_mm + r * (label_h_mm + row_gap_mm)
-            x_pt, y_pt = mm_to_pt(x), mm_to_pt(y)
-            w_pt, h_pt = mm_to_pt(label_w_mm), mm_to_pt(label_h_mm)
-
-            if data["name"] or data["type"] or data["price_bgn"] or data["price_eur"]:
-                margin_inside = mm_to_pt(2)
-                align = Qt.AlignLeft if data["logo"] else Qt.AlignCenter
-                text_x = x_pt + margin_inside
-                text_y = y_pt + margin_inside + 18
-
-                painter.setFont(QFont(font_name, 14, QFont.Bold))
-                painter.drawText(
-                    int(text_x), int(text_y), int(w_pt - 2 * margin_inside), 20,
-                    align, data["name"]
-                )
-                painter.setFont(QFont(font_name, 10))
-                painter.drawText(
-                    int(text_x), int(text_y + 20), int(w_pt - 2 * margin_inside), 16,
-                    align, data["type"]
-                )
-                # BGN (always with "лв.")
-                painter.setFont(QFont(font_name, 13, QFont.Bold))
-                bgn_line = (data["price_bgn"] + " лв.") if data["price_bgn"] else ""
-                painter.drawText(
-                    int(text_x), int(text_y + 38), int(w_pt - 2 * margin_inside), 18,
-                    align, bgn_line
-               )
- 
-                # EUR (always with "€" and unit if present, inline)
-                eur_line = data["price_eur"]
-                if eur_line:
-                    eur_line += " €"
-                    if data["unit_eur"]:
-                        eur_line += " / " + data["unit_eur"]
-                painter.setFont(QFont(font_name, 13, QFont.Bold))
-                painter.drawText(
-                    int(text_x), int(text_y + 56), int(w_pt - 2 * margin_inside), 18,
-                    align, eur_line
-                )
-
+        self._draw(painter, border_rects=True)
         painter.end()
 
-
-    def print_exact_sheet(self):
-        from PyQt5.QtWidgets import QFileDialog
-        from PyQt5.QtPrintSupport import QPrinter
-        from PyQt5.QtGui import QPainter, QFont
-        from PyQt5.QtCore import Qt
-        import json
-        import os
-
-        layout_path = "config/settings.json"
-        if not os.path.exists(layout_path):
-            print("Missing layout settings. Please use the Sheet Setup tab first.")
-            return
-
-        with open(layout_path, "r", encoding="utf-8") as f:
-            settings = json.load(f)
-
-        path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf)")
-        if not path:
-            return
-
+    def print_labels(self):
         printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setOutputFileName(path)
         printer.setPageSize(printer.A4)
-
-        mm_to_pt = lambda mm: mm * 72 / 25.4
-        a4_w_pt = mm_to_pt(210)
-        a4_h_pt = mm_to_pt(297)
-
-        page_rect = printer.pageRect()
-        scale = min(page_rect.width() / a4_w_pt, page_rect.height() / a4_h_pt)
-        offset_x = (page_rect.width() - a4_w_pt * scale) / 2
-        offset_y = (page_rect.height() - a4_h_pt * scale) / 2
-
+        if QPrintDialog(printer, self).exec_() != QPrintDialog.Accepted:
+            return
         painter = QPainter(printer)
-        painter.translate(offset_x, offset_y)
+        self._draw(painter, border_rects=False)
+        painter.end()
+
+    def _draw(self, painter, border_rects):
+        ls = self.sheet_settings
+        mm2pt = lambda mm: mm * 72 / 25.4
+        # compute scale to fit A4
+        pr = painter.device()
+        rect = pr.pageRect()
+        scale = min(rect.width() / mm2pt(210), rect.height() / mm2pt(297))
+        offx = (rect.width() - mm2pt(210) * scale) / 2
+        offy = (rect.height() - mm2pt(297) * scale) / 2
+        painter.translate(offx, offy)
         painter.scale(scale, scale)
 
-        margin_left = settings.get("margin_left_mm", 10)
-        margin_top = settings.get("margin_top_mm", 10)
-        col_gap = settings.get("col_gap_mm", 2.5)
-        row_gap = settings.get("row_gap_mm", 0)
-        label_w = settings.get("label_width_mm", 63.5)
-        label_h = settings.get("label_height_mm", 38.1)
-        cols = settings.get("cols", 3)
+        # dynamic font sizing
+        label_h_pt = mm2pt(ls["label_height_mm"])
+        base_pt = max(6, min(10, int(label_h_pt * 0.1)))
 
-        for idx, label in enumerate(self.labels):
-            data = label.get_export_data()
-            r, c = divmod(idx, cols)
-            x = mm_to_pt(margin_left + c * (label_w + col_gap))
-            y = mm_to_pt(margin_top + r * (label_h + row_gap))
-            w = mm_to_pt(label_w)
-            h = mm_to_pt(label_h)
-            margin = mm_to_pt(2)
-            align = Qt.AlignLeft if data["logo"] else Qt.AlignCenter
-            tx, ty = x + margin, y + margin + 18
+        idx = 0
+        for r in range(ls["rows"]):
+            for c in range(ls["cols"]):
+                x = mm2pt(ls["margin_left_mm"] + c * (ls["label_width_mm"] + ls["col_gap_mm"]))
+                y = mm2pt(ls["margin_top_mm"]  + r * (ls["label_height_mm"] + ls["row_gap_mm"]))
+                w = mm2pt(ls["label_width_mm"])
+                h = mm2pt(ls["label_height_mm"])
 
-            painter.setFont(QFont("Arial", 14, QFont.Bold))
-            painter.drawText(int(tx), int(ty), int(w - 2*margin), 20, align, data["name"])
-            painter.setFont(QFont("Arial", 10))
-            painter.drawText(int(tx), int(ty + 20), int(w - 2*margin), 16, align, data["type"])
+                if idx < len(self.labels):
+                    data = self.labels[idx].get_export_data()
+                    lines = []
+                    if data["name"]:
+                        lines.append((data["name"], QFont("Arial", base_pt, QFont.Bold)))
+                    if data["type"]:
+                        f = QFont("Arial", max(6, int(base_pt * 0.9))); f.setItalic(True)
+                        lines.append((data["type"], f))
+                    if data["price_bgn"]:
+                        lines.append((f"{data['price_bgn']} лв.", QFont("Arial", base_pt)))
+                    if data["price_eur"]:
+                        lines.append((f"€{data['price_eur']}", QFont("Arial", base_pt)))
+                    if data["unit_eur"]:
+                        f = QFont("Arial", max(6, int(base_pt * 0.8))); f.setItalic(True)
+                        lines.append((f"/ {data['unit_eur']}", f))
 
-            painter.setFont(QFont("Arial", 13, QFont.Bold))
-            if data["price_bgn"]:
-                painter.drawText(int(tx), int(ty + 38), int(w - 2*margin), 18, align, data["price_bgn"] + " лв.")
+                    # center vertically
+                    total_h = sum(QFontMetrics(f).height() for _, f in lines)
+                    y0 = y + (h - total_h) / 2
+                    for text, font in lines:
+                        painter.setFont(font)
+                        fm = QFontMetrics(font)
+                        painter.drawText(int(x), int(y0), int(w), fm.height(), Qt.AlignCenter, text)
+                        y0 += fm.height()
+                idx += 1
 
-            if data["price_eur"]:
-                eur = "€" + data["price_eur"]
-                if data["unit_eur"]:
-                    eur += " / " + data["unit_eur"]
-                painter.drawText(int(tx), int(ty + 56), int(w - 2*margin), 18, align, eur)
-
-        painter.end()
+    def eventFilter(self, obj, event):
+        if obj == self.labels_area.viewport() and event.type() == QEvent.MouseButtonPress:
+            pos = event.pos()
+            if not any(lbl.geometry().contains(lbl.parentWidget().mapFrom(self.labels_area.viewport(), pos))
+                       for lbl in self.labels):
+                for i in self.selected_indexes:
+                    self.labels[i].set_selected(False)
+                self.selected_indexes = []
+                return True
+        return super().eventFilter(obj, event)

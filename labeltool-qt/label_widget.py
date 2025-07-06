@@ -12,7 +12,7 @@ class DashedUnderlineLabel(QLabel):
     def paintEvent(self, event):
         super().paintEvent(event)
         painter = QPainter(self)
-        pen = QPen(QColor("#cccccc"))
+        pen = QPen(QColor("#e3e3e3"))
         pen.setWidth(1)
         pen.setStyle(Qt.DashLine)
         painter.setPen(pen)
@@ -39,7 +39,7 @@ class LabelWidget(QWidget):
         outer_layout.setContentsMargins(8, 14, 8, 8)
         outer_layout.setSpacing(8)
         self.setLayout(outer_layout)
-        self.setFixedSize(240, 160)
+        self.setFixedSize(260, 220)
 
         self.logo_label = QLabel()
         self.logo_label.setFixedSize(40, 40)
@@ -163,7 +163,7 @@ class LabelWidget(QWidget):
         self.update_style()
 
     def update_style(self):
-        border = "#008cff" if self._selected else "#888888"
+        border = "#008cff" if self._selected else "#414141"
         border_w = "3px" if (self._selected or self._hovered) else "1px"
         self.setStyleSheet(
             f"QWidget {{ background: #ffffff; border: {border_w} solid {border}; border-radius: 7px; }}"
