@@ -15,12 +15,46 @@ class ClickableFrame(QFrame):
         else:
             super().mousePressEvent(event)
 
+import os
+os.makedirs("config", exist_ok=True)
+
 class SheetWidget(QWidget):
+    def save_session(self):
+        import json
+        data = [label.get_export_data() for label in self.labels]
+        try:
+            with open("config/session.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print("Failed to save session:", e)
+
+    def load_session(self):
+        import json
+        import os
+        path = "config/session.json"
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for i, label_data in enumerate(data):
+                if i >= len(self.labels):
+                    break
+                self.labels[i].set_name(label_data.get("name", ""))
+                self.labels[i].set_type(label_data.get("type", ""))
+                self.labels[i].set_price(label_data.get("price_bgn", ""))
+                self.labels[i].set_price_eur(label_data.get("price_eur", ""))
+                self.labels[i].set_unit_eur_text(label_data.get("unit_eur", ""))
+                self.labels[i].set_logo(label_data.get("logo", False))
+        except Exception as e:
+            print("Failed to load session:", e)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         outer = QVBoxLayout(self)
         self.setLayout(outer)
-        # Compact horizontal layout for print buttons
+
+        
         btn_row = QHBoxLayout()
         self.print_btn = QPushButton("Запази PDF")
         self.print_btn.clicked.connect(self.print_sheet)
@@ -29,10 +63,9 @@ class SheetWidget(QWidget):
         self.print_btn2 = QPushButton("Печатай")
         self.print_btn2.clicked.connect(self.print_exact_sheet)
         btn_row.addWidget(self.print_btn2)
-
         outer.addLayout(btn_row)
 
-
+        self.print_btn.clicked.connect(self.print_sheet)
         
 
         self.scroll = QScrollArea()
@@ -55,6 +88,7 @@ class SheetWidget(QWidget):
         for idx, label in enumerate(self.labels):
             self.sheet_layout.addWidget(label, idx // self.cols, idx % self.cols)
             label.clicked.connect(self.handle_label_click)
+            label.changed.connect(self.save_session)
 
         # Multi-selection
         self.selected_indexes = set()
@@ -67,6 +101,7 @@ class SheetWidget(QWidget):
 
         self.installEventFilter(self)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.load_session()
 
     def handle_label_click(self, label, event):
         idx = self.labels.index(label)
@@ -189,19 +224,21 @@ class SheetWidget(QWidget):
 
         painter.end()
 
+
     def print_exact_sheet(self):
+        from PyQt5.QtWidgets import QFileDialog
         from PyQt5.QtPrintSupport import QPrinter
         from PyQt5.QtGui import QPainter, QFont
-        from PyQt5.QtWidgets import QFileDialog
         from PyQt5.QtCore import Qt
         import json
         import os
 
-        if not os.path.exists("3x7.json"):
-            print("Missing layout. Please save a sheet setup first.")
+        layout_path = "config/settings.json"
+        if not os.path.exists(layout_path):
+            print("Missing layout settings. Please use the Sheet Setup tab first.")
             return
 
-        with open("3x7.json", "r", encoding="utf-8") as f:
+        with open(layout_path, "r", encoding="utf-8") as f:
             settings = json.load(f)
 
         path, _ = QFileDialog.getSaveFileName(self, "Export PDF", "", "PDF Files (*.pdf)")
@@ -211,18 +248,16 @@ class SheetWidget(QWidget):
         printer = QPrinter(QPrinter.HighResolution)
         printer.setOutputFormat(QPrinter.PdfFormat)
         printer.setOutputFileName(path)
-        printer.setPageSize(QPrinter.A4)
+        printer.setPageSize(printer.A4)
 
         mm_to_pt = lambda mm: mm * 72 / 25.4
-        a4_w_mm, a4_h_mm = 210, 297
-        a4_w_pt = mm_to_pt(a4_w_mm)
-        a4_h_pt = mm_to_pt(a4_h_mm)
+        a4_w_pt = mm_to_pt(210)
+        a4_h_pt = mm_to_pt(297)
 
         page_rect = printer.pageRect()
-        page_w_pt, page_h_pt = page_rect.width(), page_rect.height()
-        scale = min(page_w_pt / a4_w_pt, page_h_pt / a4_h_pt)
-        offset_x = (page_w_pt - a4_w_pt * scale) / 2
-        offset_y = (page_h_pt - a4_h_pt * scale) / 2
+        scale = min(page_rect.width() / a4_w_pt, page_rect.height() / a4_h_pt)
+        offset_x = (page_rect.width() - a4_w_pt * scale) / 2
+        offset_y = (page_rect.height() - a4_h_pt * scale) / 2
 
         painter = QPainter(printer)
         painter.translate(offset_x, offset_y)
@@ -263,5 +298,3 @@ class SheetWidget(QWidget):
                 painter.drawText(int(tx), int(ty + 56), int(w - 2*margin), 18, align, eur)
 
         painter.end()
-
-
