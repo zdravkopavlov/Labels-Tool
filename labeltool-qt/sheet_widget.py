@@ -1,12 +1,11 @@
 # sheet_widget.py
 
 import os
-import csv
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QFileDialog, QMessageBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QPainter, QFontMetrics
+from PyQt5.QtGui import QPainter
 from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 from label_widget import LabelWidget
 from toolbar_widget import ToolbarWidget
@@ -15,7 +14,6 @@ from selection_manager import SelectionManager
 from clipboard_manager import ClipboardManager
 from printer_rl import export_to_pdf
 
-# Always use config/session.json in the same folder as this .py
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR  = os.path.join(BASE_DIR, "config")
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -61,7 +59,7 @@ class SheetWidget(QWidget):
         self._populate_grid()
 
         # SessionManager: use config/session.json right next to the .py
-        self.session = SessionManager(self)  # No path arg needed!
+        self.session = SessionManager(self)  # Always uses config/session.json
         self.session.load_session()
 
         # Selection & Clipboard
@@ -71,8 +69,8 @@ class SheetWidget(QWidget):
         # Hook toolbar actions
         self.toolbar.selectAllRequested.connect(self.selection.select_all)
         self.toolbar.clearRequested.connect(self._confirm_and_clear)
-        self.toolbar.saveSessionRequested.connect(self.session.save_session)
-        self.toolbar.loadSessionRequested.connect(self.session.load_session)
+        self.toolbar.saveSessionRequested.connect(self.save_session_csv)
+        self.toolbar.loadSessionRequested.connect(self.load_session_csv)
         self.toolbar.printRequested.connect(self._print_to_printer)
         self.toolbar.exportRequested.connect(self.export_pdf)
 
@@ -80,6 +78,9 @@ class SheetWidget(QWidget):
         for lbl in self.labels:
             lbl.setCursor(Qt.PointingHandCursor)
             lbl.changed.connect(self.labelsChanged.emit)
+
+        # ALWAYS SAVE SESSION on any label change
+        self.labelsChanged.connect(self.session.save_session)
 
     def _populate_grid(self):
         if self.scroll.widget():
@@ -126,7 +127,17 @@ class SheetWidget(QWidget):
         if not fn:
             return
         settings = get_sheet_settings_from_tabs(self)
-        export_to_pdf(fn, settings, self.labels, show_logo=True, logo_path="logo.png")
+        try:
+            export_to_pdf(fn, settings, self.labels, show_logo=True, logo_path="logo.png")
+        except PermissionError as e:
+            QMessageBox.warning(
+                self,
+                "Грешка при запис на PDF",
+                "Не може да запише PDF–а.\n"
+                "Уверете се, че файлът не е отворен в друг прозорец.\n\n"
+                f"{e}"
+            )
+            return
         QMessageBox.information(self, "Готово", f"PDF записан в:\n{fn}")
 
     def _print_to_printer(self):
@@ -140,58 +151,61 @@ class SheetWidget(QWidget):
         painter.end()
 
     def _draw_labels_on_painter(self, painter):
+        from label_render import draw_labels_grid
         s = get_sheet_settings_from_tabs(self)
-        lw = float(s["label_width_mm"])
-        lh = float(s["label_height_mm"])
-        mt = float(s["margin_top_mm"])
-        ml = float(s["margin_left_mm"])
-        rg = float(s["row_gap_mm"])
-        cg = float(s["col_gap_mm"])
-        rows, cols = int(s["rows"]), int(s["cols"])
+        label_dicts = [lbl.get_export_data() for lbl in self.labels]
+        draw_labels_grid(
+            backend="qtpainter",
+            device=painter,
+            settings=s,
+            labels=label_dicts,
+            logo_path="logo.png",  # or None if you don't use logos
+        )
 
-        mm_to_pt = lambda mm: mm * 72 / 25.4
-        dev = painter.device()
-        pw, ph = dev.pageRect().width(), dev.pageRect().height()
-        aw, ah = mm_to_pt(210), mm_to_pt(297)
-        scale = min(pw/aw, ph/ah)
-        painter.translate((pw - aw*scale)/2, (ph - ah*scale)/2)
-        painter.scale(scale, scale)
+    def save_session_csv(self):
+        fn, _ = QFileDialog.getSaveFileName(self, "Запази сесия (CSV)", "", "CSV Files (*.csv)")
+        if not fn:
+            return
+        try:
+            with open(fn, "w", newline="", encoding="utf-8") as f:
+                import csv
+                w = csv.writer(f)
+                w.writerow(["name", "type", "price_bgn", "price_eur", "unit_eur", "logo"])
+                for lbl in self.labels:
+                    d = lbl.get_export_data()
+                    w.writerow([
+                        d["name"], d["type"],
+                        d["price_bgn"], d["price_eur"],
+                        d["unit_eur"], d["logo"]
+                    ])
+            QMessageBox.information(self, "Запазено", f"CSV записан в:\n{fn}")
+        except Exception as e:
+            QMessageBox.warning(self, "Грешка", f"Не можа да запише CSV:\n{e}")
 
-        for idx, lbl in enumerate(self.labels):
-            data = lbl.get_export_data()
-            r, c = divmod(idx, cols)
-            x = mm_to_pt(ml + c * (lw + cg))
-            y = mm_to_pt(mt + r * (lh + rg))
-            margin = mm_to_pt(2)
-            curr_y = y + mm_to_pt(lh) - margin
+    def load_session_csv(self):
+        fn, _ = QFileDialog.getOpenFileName(self, "Зареди сесия (CSV)", "", "CSV Files (*.csv)")
+        if not fn:
+            return
+        try:
+            with open(fn, "r", newline="", encoding="utf-8") as f:
+                import csv
+                rows = list(csv.DictReader(f))
+            for i, entry in enumerate(rows):
+                if i >= len(self.labels):
+                    break
+                lbl = self.labels[i]
+                lbl.set_name(entry.get("name", ""))
+                lbl.set_type(entry.get("type", ""))
+                lbl.set_price(entry.get("price_bgn", ""))
+                lbl.set_price_eur(entry.get("price_eur", ""))
+                lbl.set_unit_eur_text(entry.get("unit_eur", ""))
+                lbl.set_logo(entry.get("logo", "False") in ("True", "true", "1"))
+            self.labelsChanged.emit()
+            QMessageBox.information(self, "Заредено", f"Сесията е заредена от:\n{fn}")
+        except Exception as e:
+            QMessageBox.warning(self, "Грешка", f"Не можа да зареди CSV:\n{e}")
 
-            def draw_line(text, font_name, size):
-                if not text:
-                    return 0
-                font = painter.font()
-                font.setFamily(font_name)
-                font.setPointSize(size)
-                painter.setFont(font)
-                fh = QFontMetrics(font).height()
-                painter.drawText(int(x + margin), int(curr_y - fh), text)
-                return fh * 1.2
-
-            curr_y -= draw_line(data["name"],
-                                s.get("name_font", "Helvetica-Bold"),
-                                s.get("name_size_pt", 11))
-            curr_y -= draw_line(data["type"],
-                                s.get("type_font", "Helvetica-Oblique"),
-                                s.get("type_size_pt", 9))
-            if data["price_bgn"]:
-                curr_y -= draw_line(f"{data['price_bgn']} лв.",
-                                    s.get("price_font", "Helvetica-Bold"),
-                                    s.get("price_size_pt", 11))
-            if data["price_eur"]:
-                curr_y -= draw_line(f"€{data['price_eur']}",
-                                    s.get("price_font", "Helvetica-Bold"),
-                                    s.get("price_size_pt", 11))
-
-    # For explicit save/load if ever needed
+    # For explicit save/load if ever needed (compat)
     def save_session(self):
         self.session.save_session()
     def load_session(self):
