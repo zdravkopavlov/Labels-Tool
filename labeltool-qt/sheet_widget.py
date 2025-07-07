@@ -12,8 +12,10 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QPainter
+from PyQt5.QtWidgets import QGridLayout, QVBoxLayout
 from label_widget import LabelWidget
 from toolbar_widget import ToolbarWidget
+from bottom_toolbar_widget import BottomToolbarWidget
 from session_manager import SessionManager
 from selection_manager import SelectionManager
 from clipboard_manager import ClipboardManager
@@ -60,6 +62,9 @@ class SheetWidget(QWidget):
         self.scroll.setWidgetResizable(True)
         self.layout.addWidget(self.scroll)
 
+        self.bottom_toolbar = BottomToolbarWidget()
+        self.layout.addWidget(self.bottom_toolbar)
+
         # Build label grid
         self._populate_grid()
 
@@ -93,25 +98,34 @@ class SheetWidget(QWidget):
         s = get_sheet_settings_from_tabs(self)
         rows, cols = int(s["rows"]), int(s["cols"])
 
-        container = QWidget()
-        from PyQt5.QtWidgets import QHBoxLayout
-        vlay = QVBoxLayout(container)
-        vlay.setContentsMargins(12, 12, 12, 12)
+        grid_container = QWidget()
+        grid = QGridLayout(grid_container)
+        grid.setSpacing(4)
+        grid.setContentsMargins(10, 10, 0, 0)
 
         self.labels = []
         for r in range(rows):
-            hl = QHBoxLayout()
-            hl.setSpacing(int(s["col_gap_mm"] * 0.8))
-            for _ in range(cols):
+            for c in range(cols):
                 lbl = LabelWidget()
+                lbl.setSizePolicy(lbl.sizePolicy().Fixed, lbl.sizePolicy().Fixed)
                 self.labels.append(lbl)
-                hl.addWidget(lbl)
-            vlay.addLayout(hl)
-            if r < rows - 1:
-                vlay.addSpacing(int(s["row_gap_mm"] * 0.8))
+                grid.addWidget(lbl, r, c, alignment=Qt.AlignTop | Qt.AlignLeft)
 
-        self.scroll.setWidget(container)
+        for r in range(rows):
+            grid.setRowStretch(r, 0)
+        for c in range(cols):
+            grid.setColumnStretch(c, 0)
+
+        # NEW: main container to hold grid, aligned to top/left
+        main_container = QWidget()
+        main_layout = QVBoxLayout(main_container)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(grid_container, alignment=Qt.AlignTop | Qt.AlignLeft)
+        # Optionally add a vertical spacer if you want a minimum scroll area
+
+        self.scroll.setWidget(main_container)
         self.labelsChanged.emit()
+
 
     def _confirm_and_clear(self):
         reply = QMessageBox.question(

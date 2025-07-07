@@ -7,7 +7,7 @@ class MainWindow(QTabWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Labels Tool")
-        self.resize(900, 1000)
+        self.resize(1000, 1000)
 
         # Tab 1: Main label editor (SheetWidget)
         self.label_tab = SheetWidget()

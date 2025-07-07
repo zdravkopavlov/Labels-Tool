@@ -42,7 +42,7 @@ class LabelWidget(QWidget):
 
         # -- Layout & sizing --
         outer = QHBoxLayout(self)
-        outer.setContentsMargins(8, 14, 8, 8)
+        outer.setContentsMargins(0, 4, 0, 0)
         outer.setSpacing(8)
         self.setLayout(outer)
         self.setFixedSize(240, 120)
