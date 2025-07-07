@@ -2,19 +2,26 @@ import os
 import json
 from PyQt5.QtWidgets import (
     QApplication,
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QScrollArea, QFileDialog, QShortcut
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QScrollArea,
+    QFileDialog,
+    QShortcut
 )
 from PyQt5.QtCore import Qt, QEvent
 from PyQt5.QtGui import QPainter, QFont, QFontMetrics, QKeySequence
 from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 from label_widget import LabelWidget
+from printer import export_to_pdf, print_to_printer
 
 # ─── CONFIG PATHS ─────────────────────────────────────────────────────────────
-BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR   = os.path.join(BASE_DIR, "config")
+BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR    = os.path.join(BASE_DIR, "config")
 os.makedirs(CONFIG_DIR, exist_ok=True)
-SESSION_PATH = os.path.join(CONFIG_DIR, "session.json")
-SETTINGS_PATH= os.path.join(CONFIG_DIR, "settings.json")
+SESSION_PATH  = os.path.join(CONFIG_DIR, "session.json")
+SETTINGS_PATH = os.path.join(CONFIG_DIR, "settings.json")
 # ──────────────────────────────────────────────────────────────────────────────
 
 def get_sheet_settings_from_tabs(self):
@@ -26,7 +33,7 @@ def get_sheet_settings_from_tabs(self):
                 if hasattr(tab, "get_settings"):
                     return tab.get_settings()
         p = p.parent()
-    # fallback defaults
+    # fallback
     return {
         "label_width_mm": 63.5,
         "label_height_mm": 38.1,
@@ -43,16 +50,19 @@ class SheetWidget(QWidget):
         super().__init__()
         self.setWindowTitle("Labels Tool")
 
-        # Layout
+        # Top toolbar
         self.layout = QVBoxLayout(self)
-        tl = QHBoxLayout(); self.layout.addLayout(tl)
-        self.export_pdf_btn = QPushButton("Запази PDF"); tl.addWidget(self.export_pdf_btn)
-        self.print_btn      = QPushButton("Печатай");  tl.addWidget(self.print_btn)
+        tl = QHBoxLayout()
+        self.layout.addLayout(tl)
+        self.export_pdf_btn = QPushButton("Запази PDF")
+        tl.addWidget(self.export_pdf_btn)
+        self.print_btn = QPushButton("Печатай")
+        tl.addWidget(self.print_btn)
         tl.addStretch(1)
         self.export_pdf_btn.clicked.connect(self.export_pdf)
         self.print_btn.clicked.connect(self.print_labels)
 
-        # Load sheet settings
+        # Load sheet layout settings
         self.sheet_settings = get_sheet_settings_from_tabs(self)
         if os.path.exists(SETTINGS_PATH):
             try:
@@ -60,21 +70,23 @@ class SheetWidget(QWidget):
             except:
                 pass
 
-        # Scroll area + grid
+        # Scroll area for labels
         self.labels_area = QScrollArea()
         self.labels_area.setWidgetResizable(True)
         self.layout.addWidget(self.labels_area)
+
+        # Selection and grid
         self.selected_indexes = []
         self.populate_grid()
 
-        # Install event filter for blank-space clicks
+        # Click-empty-space clears selection
         self.labels_area.viewport().installEventFilter(self)
 
-        # Load label session
+        # Load saved label session
         if os.path.exists(SESSION_PATH):
             try:
-                data = json.load(open(SESSION_PATH, "r", encoding="utf-8"))
-                for i, item in enumerate(data):
+                saved = json.load(open(SESSION_PATH, "r", encoding="utf-8"))
+                for i, item in enumerate(saved):
                     if i < len(self.labels):
                         lbl = self.labels[i]
                         lbl.set_name(item["name"])
@@ -86,7 +98,7 @@ class SheetWidget(QWidget):
             except:
                 pass
 
-        # Global shortcuts
+        # Global copy/paste shortcuts
         self.copy_sc = QShortcut(QKeySequence("Ctrl+C"), self)
         self.copy_sc.setContext(Qt.ApplicationShortcut)
         self.copy_sc.activated.connect(self.copy_selected)
@@ -95,7 +107,7 @@ class SheetWidget(QWidget):
         self.paste_sc.activated.connect(self.paste_selected)
 
     def populate_grid(self):
-        # Clear old widget
+        # Clear old
         if self.labels_area.widget():
             self.labels_area.takeWidget().deleteLater()
 
@@ -111,8 +123,8 @@ class SheetWidget(QWidget):
             hb.setSpacing(int(ls["col_gap_mm"] * 0.8))
             for c in range(cols):
                 lbl = LabelWidget()
-                lbl.setMinimumHeight(130)
-                lbl.setMaximumHeight(120)
+                lbl.setMinimumHeight(110)
+                lbl.setMaximumHeight(110)
                 lbl.clicked.connect(self.on_label_clicked)
                 lbl.changed.connect(self._auto_save_session)
                 self.labels.append(lbl)
@@ -140,7 +152,6 @@ class SheetWidget(QWidget):
                 if i not in self.selected_indexes:
                     self.selected_indexes.append(i)
         else:
-            # single select
             for i in self.selected_indexes:
                 self.labels[i].set_selected(False)
             self.selected_indexes = [idx]
@@ -178,29 +189,17 @@ class SheetWidget(QWidget):
 
     def export_pdf(self):
         fn, _ = QFileDialog.getSaveFileName(self, "Export to PDF", "", "PDF Files (*.pdf)")
-        if not fn:
-            return
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFileName(fn)
-        printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setPageSize(printer.A4)
-        painter = QPainter(printer)
-        self._draw(painter, border_rects=True)
-        painter.end()
+        if fn:
+            export_to_pdf(fn, self.sheet_settings, self.labels)
 
     def print_labels(self):
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setPageSize(printer.A4)
-        if QPrintDialog(printer, self).exec_() != QPrintDialog.Accepted:
-            return
-        painter = QPainter(printer)
-        self._draw(painter, border_rects=False)
-        painter.end()
+        print_to_printer(self, self.sheet_settings, self.labels)
 
     def _draw(self, painter, border_rects):
         ls = self.sheet_settings
         mm2pt = lambda mm: mm * 72 / 25.4
-        # compute scale to fit A4
+
+        # Scale to A4
         pr = painter.device()
         rect = pr.pageRect()
         scale = min(rect.width() / mm2pt(210), rect.height() / mm2pt(297))
@@ -209,9 +208,9 @@ class SheetWidget(QWidget):
         painter.translate(offx, offy)
         painter.scale(scale, scale)
 
-        # dynamic font sizing
+        # Dynamic font size (10% of label height, clamped)
         label_h_pt = mm2pt(ls["label_height_mm"])
-        base_pt = max(6, min(10, int(label_h_pt * 0.1)))
+        base_pt    = max(6, min(10, int(label_h_pt * 0.1)))
 
         idx = 0
         for r in range(ls["rows"]):
@@ -225,19 +224,19 @@ class SheetWidget(QWidget):
                     data = self.labels[idx].get_export_data()
                     lines = []
                     if data["name"]:
-                        lines.append((data["name"], QFont("Arial", base_pt, QFont.Bold)))
+                        lines.append((data["name"], QFont("Helvetica", base_pt, QFont.Bold)))
                     if data["type"]:
-                        f = QFont("Arial", max(6, int(base_pt * 0.9))); f.setItalic(True)
+                        f = QFont("Helvetica", max(6, int(base_pt * 0.9))); f.setItalic(True)
                         lines.append((data["type"], f))
                     if data["price_bgn"]:
-                        lines.append((f"{data['price_bgn']} лв.", QFont("Arial", base_pt)))
+                        lines.append((f"{data['price_bgn']} лв.", QFont("Helvetica", base_pt)))
                     if data["price_eur"]:
-                        lines.append((f"€{data['price_eur']}", QFont("Arial", base_pt)))
+                        lines.append((f"€{data['price_eur']}", QFont("Helvetica", base_pt)))
                     if data["unit_eur"]:
-                        f = QFont("Arial", max(6, int(base_pt * 0.8))); f.setItalic(True)
+                        f = QFont("Helvetica", max(6, int(base_pt * 0.8))); f.setItalic(True)
                         lines.append((f"/ {data['unit_eur']}", f))
 
-                    # center vertically
+                    # Vertical centering
                     total_h = sum(QFontMetrics(f).height() for _, f in lines)
                     y0 = y + (h - total_h) / 2
                     for text, font in lines:
@@ -245,6 +244,7 @@ class SheetWidget(QWidget):
                         fm = QFontMetrics(font)
                         painter.drawText(int(x), int(y0), int(w), fm.height(), Qt.AlignCenter, text)
                         y0 += fm.height()
+
                 idx += 1
 
     def eventFilter(self, obj, event):
