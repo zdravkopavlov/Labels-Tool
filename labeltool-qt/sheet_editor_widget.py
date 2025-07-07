@@ -13,12 +13,12 @@ from PyQt5.QtGui import QPen, QColor, QPainterPath, QBrush, QFont, QPainter
 from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 
 # ── Config & Fonts Setup ────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
 os.makedirs(CONFIG_DIR, exist_ok=True)
 SETTINGS_PATH = os.path.join(CONFIG_DIR, "settings.json")
 
-FONTS_DIR = os.path.join(BASE_DIR, "fonts")
+FONTS_DIR   = os.path.join(BASE_DIR, "fonts")
 os.makedirs(FONTS_DIR, exist_ok=True)
 _font_files = [f for f in os.listdir(FONTS_DIR) if f.lower().endswith('.ttf')]
 FONTS_LIST  = [os.path.splitext(f)[0] for f in _font_files]
@@ -191,7 +191,7 @@ class SheetEditor(QWidget):
 
         self.save_btn.clicked.connect(lambda: self._load_settings(None, autobackup=False))
         self.load_btn.clicked.connect(lambda: self._load_settings(None, autobackup=False))
-        self.print_btn.clicked.connect(lambda: self.preview.update_preview(self.get_settings()))
+        self.print_btn.clicked.connect(self._print_grid)
 
         # Initial preview
         self.preview.update_preview(self.get_settings())
@@ -251,18 +251,20 @@ class SheetEditor(QWidget):
 
     def get_settings(self):
         def parse(txt, fallback):
-            try: return float(txt)
-            except: return fallback
+            try:
+                return float(txt)
+            except:
+                return fallback
 
         base = {
-            "label_width_mm":   parse(self.in_w.text(),     63.5),
-            "label_height_mm":  parse(self.in_h.text(),     38.1),
-            "margin_top_mm":    parse(self.in_mt.text(),    10),
-            "margin_left_mm":   parse(self.in_ml.text(),    10),
-            "row_gap_mm":       parse(self.in_rg.text(),     0),
-            "col_gap_mm":       parse(self.in_cg.text(),     2.5),
-            "rows":             self.in_rows.value(),
-            "cols":             self.in_cols.value(),
+            "label_width_mm":  parse(self.in_w.text(),     63.5),
+            "label_height_mm": parse(self.in_h.text(),     38.1),
+            "margin_top_mm":   parse(self.in_mt.text(),    10),
+            "margin_left_mm":  parse(self.in_ml.text(),    10),
+            "row_gap_mm":      parse(self.in_rg.text(),     0),
+            "col_gap_mm":      parse(self.in_cg.text(),     2.5),
+            "rows":            self.in_rows.value(),
+            "cols":            self.in_cols.value(),
         }
         fonts = {}
         for tag in ("name", "type", "price"):
@@ -271,6 +273,64 @@ class SheetEditor(QWidget):
             fonts[f"{tag}_bold"]    = getattr(self, f"{tag}_bold").isChecked()
             fonts[f"{tag}_italic"]  = getattr(self, f"{tag}_italic").isChecked()
         return {**base, **fonts}
+
+    def _print_grid(self):
+        """
+        Print only the blue calibration grid (no labels).
+        """
+        # 1) Setup printer
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPrinter.A4)
+        dlg = QPrintDialog(printer, self)
+        if dlg.exec_() != QPrintDialog.Accepted:
+            return
+
+        # 2) Begin painting
+        painter = QPainter(printer)
+        painter.setRenderHint(QPainter.Antialiasing)
+        pen = QPen(QColor("#1c80e9"))
+        pen.setWidthF(1.0)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        # 3) mm → points conversion
+        mm_to_pt = lambda mm: mm * 72 / 25.4
+
+        # 4) Read settings
+        s = self.get_settings()
+        lw = float(s["label_width_mm"])
+        lh = float(s["label_height_mm"])
+        mt = float(s["margin_top_mm"])
+        ml = float(s["margin_left_mm"])
+        rg = float(s["row_gap_mm"])
+        cg = float(s["col_gap_mm"])
+        rows = int(s["rows"])
+        cols = int(s["cols"])
+
+        # 5) Scale & center to A4
+        pw = printer.pageRect().width()
+        ph = printer.pageRect().height()
+        aw_pt = mm_to_pt(210)
+        ah_pt = mm_to_pt(297)
+        scale = min(pw / aw_pt, ph / ah_pt)
+        painter.translate((pw - aw_pt * scale) / 2, (ph - ah_pt * scale) / 2)
+        painter.scale(scale, scale)
+
+        # 6) Draw the grid outlines
+        for r in range(rows):
+            for c in range(cols):
+                x = ml + c * (lw + cg)
+                y = mt + r * (lh + rg)
+                # use QRectF instead of raw floats
+                rect = QRectF(
+                    mm_to_pt(x),
+                    mm_to_pt(y),
+                    mm_to_pt(lw),
+                    mm_to_pt(lh)
+                )
+                painter.drawRoundedRect(rect, 8, 8)
+
+        painter.end()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

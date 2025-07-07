@@ -141,25 +141,43 @@ class SheetWidget(QWidget):
         QMessageBox.information(self, "Готово", f"PDF записан в:\n{fn}")
 
     def _print_to_printer(self):
+        # 1) Create & configure the printer
         printer = QPrinter(QPrinter.HighResolution)
         printer.setPageSize(QPrinter.A4)
+
+        # 2) Show the print dialog
         dlg = QPrintDialog(printer, self)
         if dlg.exec_() != QPrintDialog.Accepted:
             return
+
+        # 3) Begin painting
         painter = QPainter(printer)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # 4) Scale so that 1pt (1/72") == 1 logical DPI unit
+        factor = printer.logicalDpiX() / 72.0
+        painter.scale(factor, factor)
+
+        # 5) Draw the labels at point-based coordinates
         self._draw_labels_on_painter(painter)
+
+        # 6) Finish
         painter.end()
 
     def _draw_labels_on_painter(self, painter):
+        # pulls in the unified layout code
         from label_render import draw_labels_grid
+        # get the sheet settings (your existing helper)
         s = get_sheet_settings_from_tabs(self)
-        label_dicts = [lbl.get_export_data() for lbl in self.labels]
+        # collect all label data
+        data = [lbl.get_export_data() for lbl in self.labels]
+        # draw everything on the QPainter
         draw_labels_grid(
             backend="qtpainter",
             device=painter,
             settings=s,
-            labels=label_dicts,
-            logo_path="logo.png",  # or None if you don't use logos
+            labels=data,
+            logo_path="logo.png",  # or None if you don’t use logos
         )
 
     def save_session_csv(self):
