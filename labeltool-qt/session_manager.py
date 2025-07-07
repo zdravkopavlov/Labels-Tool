@@ -1,44 +1,64 @@
 # session_manager.py
 
-import os, json
+import os
+import json
+from PyQt5.QtCore import QObject
 
-class SessionManager:
-    def __init__(self, grid, session_path: str):
-        """
-        grid: your GridWidget instance, which must emit `labelsChanged()` whenever
-              ANY LabelWidget field is edited.
-        session_path: e.g. "config/session.json"
-        """
+class SessionManager(QObject):
+    """
+    Persists and restores the grid’s LabelWidget data to config/session.json
+    using an absolute path next to this module.
+    """
+
+    def __init__(self, grid, session_filename: str = "session.json"):
+        super().__init__(grid)
         self.grid = grid
-        self.path = session_path
 
-        # load on init
-        if os.path.exists(self.path):
-            self.load()
+        # Compute an absolute config folder next to this file
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        config_dir = os.path.join(base_dir, "config")
+        os.makedirs(config_dir, exist_ok=True)
 
-        # save on any change
-        self.grid.labelsChanged.connect(self.save)
+        # Final path for session file
+        self.session_path = os.path.join(config_dir, session_filename)
 
-    def load(self):
+        # Load any existing session
+        self._load()
+
+        # Save whenever ANY label changes
+        self.grid.labelsChanged.connect(self._save)
+
+    def _load(self):
+        """Read session.json and populate every label in the grid."""
+        if not os.path.exists(self.session_path):
+            return
+
         try:
-            data = json.load(open(self.path, "r", encoding="utf-8"))
-            for idx, lbl_data in enumerate(data):
-                if idx < len(self.grid.labels):
-                    lbl = self.grid.labels[idx]
-                    lbl.set_name(lbl_data.get("name", ""))
-                    lbl.set_type(lbl_data.get("type", ""))
-                    lbl.set_price(lbl_data.get("price_bgn", ""))
-                    lbl.set_price_eur(lbl_data.get("price_eur", ""))
-                    lbl.set_unit_eur(lbl_data.get("unit_eur", ""))
-                    lbl.set_logo(lbl_data.get("logo", False))
-        except Exception:
-            pass
+            with open(self.session_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            print("⚠️  Failed to load session:", e)
+            return
 
-    def save(self):
+        # Apply each entry to the corresponding label widget
+        for i, entry in enumerate(data):
+            if i >= len(self.grid.labels):
+                break
+            lbl = self.grid.labels[i]
+            lbl.set_name(entry.get("name", ""))
+            lbl.set_type(entry.get("type", ""))
+            lbl.set_price(entry.get("price_bgn", ""))
+            lbl.set_price_eur(entry.get("price_eur", ""))
+            lbl.set_unit_eur_text(entry.get("unit_eur", ""))
+            lbl.set_logo(entry.get("logo", False))
+
+    def _save(self):
+        """Serialize all label data into session.json."""
+        # Gather export data for each label
+        all_data = [lbl.get_export_data() for lbl in self.grid.labels]
+
         try:
-            data = [lbl.get_export_data() for lbl in self.grid.labels]
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+            with open(self.session_path, "w", encoding="utf-8") as f:
+                json.dump(all_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print("⚠️  Failed to save session:", e)

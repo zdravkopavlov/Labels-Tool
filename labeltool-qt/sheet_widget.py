@@ -38,8 +38,10 @@ class SheetWidget(QWidget):
         super().__init__()
         self.setWindowTitle("Labels Tool")
 
-        # Ensure config folder exists
-        os.makedirs("config", exist_ok=True)
+        # Ensure config folder exists alongside this file
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        config_dir = os.path.join(base_dir, "config")
+        os.makedirs(config_dir, exist_ok=True)
 
         # Main layout
         self.layout = QVBoxLayout(self)
@@ -59,10 +61,7 @@ class SheetWidget(QWidget):
         self._populate_grid()
 
         # 4) Session manager (loads on init, saves on labelsChanged)
-        self.session = SessionManager(
-            grid=self,
-            session_path=os.path.join("config", "session.json")
-        )
+        self.session = SessionManager(self)
 
         # 5) Selection manager (handles Ctrl/Shift-click)
         self.selection = SelectionManager(self, self.labels)
@@ -91,7 +90,7 @@ class SheetWidget(QWidget):
         for r in range(rows):
             hl = QHBoxLayout()
             hl.setSpacing(int(s["col_gap_mm"] * 0.8))
-            for c in range(cols):
+            for _ in range(cols):
                 lbl = LabelWidget()
                 self.labels.append(lbl)
                 hl.addWidget(lbl)
@@ -100,7 +99,7 @@ class SheetWidget(QWidget):
                 vlay.addSpacing(int(s["row_gap_mm"] * 0.8))
 
         self.scroll.setWidget(container)
-        # Emit once so SessionManager can save the empty/new grid
+        # Emit once so SessionManager can save/restore the state
         self.labelsChanged.emit()
 
     def export_pdf(self):
@@ -123,5 +122,5 @@ class SheetWidget(QWidget):
         )
 
     def print_labels(self):
-        """For now, alias to export_pdf; could launch a headless print job."""
+        """For now, alias to export_pdf; can be extended for headless printing."""
         self.export_pdf()
