@@ -3,7 +3,7 @@
 from PyQt5.QtWidgets import QMenu, QAction
 
 # avoid circular import—define units here
-PREDEFINED_UNITS = ["", "бр.", "м", "м²", "м³", "кг.", "л."]
+PREDEFINED_UNITS = [" ", "бр.", "м", "м²", "м³", "кг.", "л."]
 
 def make_label_context_menu(label_widget, sheet_widget):
     """

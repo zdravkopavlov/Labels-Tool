@@ -1,4 +1,4 @@
-# label_widget.py
+# PATCHED: label_widget.py
 
 from PyQt5.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout,
@@ -180,6 +180,10 @@ class LabelWidget(QWidget):
             ("", self.set_unit_eur_text)
         ):
             setter(txt)
+
+    # PATCH: minimal setter for right-click menu compatibility
+    def set_unit_eur(self, v):
+        self.set_unit_eur_text(v)
 
     # getters/setters for uniform API:
     def set_logo(self, show: bool):     self._show_logo = show; self.logo_label.setVisible(show); self.update_style()

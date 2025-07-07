@@ -53,6 +53,10 @@ class CurrencyManager(QObject):
         eur = val / self.rate
         self.updating = True
         self.eur.setText(f"{eur:.2f}")
+        # Add the euro symbol after setting (simulate focus-out)
+        txt_eur = self.eur.text().strip()
+        if txt_eur and not txt_eur.startswith("€"):
+            self.eur.setText(f"€{txt_eur}")
         self.updating = False
 
     def _on_eur(self, *_):
@@ -65,6 +69,10 @@ class CurrencyManager(QObject):
         bgn = val * self.rate
         self.updating = True
         self.bgn.setText(f"{bgn:.2f}")
+        # Add the BGN symbol after setting (simulate focus-out)
+        txt_bgn = self.bgn.text().strip()
+        if txt_bgn and not txt_bgn.endswith(" лв."):
+            self.bgn.setText(f"{txt_bgn} лв.")
         self.updating = False
 
     def _make_focusin(self, fld, suffix="", prefix=""):
