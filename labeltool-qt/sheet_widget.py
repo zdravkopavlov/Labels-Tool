@@ -1,12 +1,17 @@
 # sheet_widget.py
 
 import os
+import tempfile
+import webbrowser
+import subprocess
+import json
+
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QFileDialog, QMessageBox
+    QWidget, QVBoxLayout, QScrollArea, QFileDialog,
+    QMessageBox
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QPainter
-from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 from label_widget import LabelWidget
 from toolbar_widget import ToolbarWidget
 from session_manager import SessionManager
@@ -58,8 +63,8 @@ class SheetWidget(QWidget):
         # Build label grid
         self._populate_grid()
 
-        # SessionManager: use config/session.json right next to the .py
-        self.session = SessionManager(self)  # Always uses config/session.json
+        # SessionManager
+        self.session = SessionManager(self)
         self.session.load_session()
 
         # Selection & Clipboard
@@ -79,7 +84,6 @@ class SheetWidget(QWidget):
             lbl.setCursor(Qt.PointingHandCursor)
             lbl.changed.connect(self.labelsChanged.emit)
 
-        # ALWAYS SAVE SESSION on any label change
         self.labelsChanged.connect(self.session.save_session)
 
     def _populate_grid(self):
@@ -129,56 +133,10 @@ class SheetWidget(QWidget):
         settings = get_sheet_settings_from_tabs(self)
         try:
             export_to_pdf(fn, settings, self.labels, show_logo=True, logo_path="logo.png")
-        except PermissionError as e:
-            QMessageBox.warning(
-                self,
-                "Грешка при запис на PDF",
-                "Не може да запише PDF–а.\n"
-                "Уверете се, че файлът не е отворен в друг прозорец.\n\n"
-                f"{e}"
-            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error exporting PDF", f"Could not create PDF:\n{e}")
             return
         QMessageBox.information(self, "Готово", f"PDF записан в:\n{fn}")
-
-    def _print_to_printer(self):
-        # 1) Create & configure the printer
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setPageSize(QPrinter.A4)
-
-        # 2) Show the print dialog
-        dlg = QPrintDialog(printer, self)
-        if dlg.exec_() != QPrintDialog.Accepted:
-            return
-
-        # 3) Begin painting
-        painter = QPainter(printer)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # 4) Scale so that 1pt (1/72") == 1 logical DPI unit
-        factor = printer.logicalDpiX() / 72.0
-        painter.scale(factor, factor)
-
-        # 5) Draw the labels at point-based coordinates
-        self._draw_labels_on_painter(painter)
-
-        # 6) Finish
-        painter.end()
-
-    def _draw_labels_on_painter(self, painter):
-        # pulls in the unified layout code
-        from label_render import draw_labels_grid
-        # get the sheet settings (your existing helper)
-        s = get_sheet_settings_from_tabs(self)
-        # collect all label data
-        data = [lbl.get_export_data() for lbl in self.labels]
-        # draw everything on the QPainter
-        draw_labels_grid(
-            backend="qtpainter",
-            device=painter,
-            settings=s,
-            labels=data,
-            logo_path="logo.png",  # or None if you don’t use logos
-        )
 
     def save_session_csv(self):
         fn, _ = QFileDialog.getSaveFileName(self, "Запази сесия (CSV)", "", "CSV Files (*.csv)")
@@ -223,8 +181,39 @@ class SheetWidget(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Грешка", f"Не можа да зареди CSV:\n{e}")
 
-    # For explicit save/load if ever needed (compat)
+    def _print_to_printer(self):
+        """
+        Fallback: generate a temp PDF and silently print to the default printer.
+        """
+        # 1) Create temp PDF
+        fd, tmp_path = tempfile.mkstemp(prefix="labels_", suffix=".pdf")
+        os.close(fd)
+        settings = get_sheet_settings_from_tabs(self)
+        try:
+            export_to_pdf(tmp_path, settings, self.labels, show_logo=True, logo_path="logo.png")
+        except Exception as e:
+            QMessageBox.critical(self, "Error exporting PDF", f"Could not create PDF:\n{e}")
+            return
+
+        # 2) Send to default printer
+        try:
+            if os.name == "nt":
+                # Windows: print silently
+                os.startfile(tmp_path, "print")
+            else:
+                # macOS/Linux: use lpr
+                subprocess.run(["lpr", tmp_path], check=True)
+        except Exception:
+            QMessageBox.warning(
+                self,
+                "Print failed",
+                "PDF created, but automatic printing failed.\n"
+                "Please open and print manually:\n" + tmp_path
+            )
+
+    # For compatibility
     def save_session(self):
         self.session.save_session()
+
     def load_session(self):
         self.session.load_session()

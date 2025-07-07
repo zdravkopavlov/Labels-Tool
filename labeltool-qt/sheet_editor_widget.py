@@ -5,23 +5,24 @@ import os
 import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit,
-    QSpinBox, QCheckBox, QPushButton, QFileDialog, QGraphicsView, QGraphicsScene,
-    QComboBox, QMessageBox
+    QSpinBox, QCheckBox, QPushButton, QFileDialog, QGraphicsView,
+    QGraphicsScene, QComboBox, QMessageBox
 )
 from PyQt5.QtCore import Qt, QRectF
 from PyQt5.QtGui import QPen, QColor, QPainterPath, QBrush, QFont, QPainter
 from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 
 # ── Config & Fonts Setup ────────────────────────────────────────────────────
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
 os.makedirs(CONFIG_DIR, exist_ok=True)
 SETTINGS_PATH = os.path.join(CONFIG_DIR, "settings.json")
 
-FONTS_DIR   = os.path.join(BASE_DIR, "fonts")
+FONTS_DIR = os.path.join(BASE_DIR, "fonts")
 os.makedirs(FONTS_DIR, exist_ok=True)
 _font_files = [f for f in os.listdir(FONTS_DIR) if f.lower().endswith('.ttf')]
 FONTS_LIST  = [os.path.splitext(f)[0] for f in _font_files]
+
 
 class SheetPreview(QGraphicsView):
     def __init__(self):
@@ -77,16 +78,18 @@ class SheetPreview(QGraphicsView):
         if self.sheet_settings:
             self.update_preview(self.sheet_settings)
 
+
 class SheetEditor(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sheet Setup Editor")
         self.setMinimumSize(900, 700)
+
         main = QVBoxLayout(self)
         layout = QHBoxLayout()
         main.addLayout(layout)
 
-        # Left: controls
+        # ── Left: controls ─────────────────────────────────────────────
         left = QVBoxLayout()
         layout.addLayout(left, 0)
 
@@ -162,17 +165,17 @@ class SheetEditor(QWidget):
         left.addWidget(self.print_btn)
         left.addStretch(1)
 
-        # Right: preview
+        # ── Right: preview ──────────────────────────────────────────────
         self.preview = SheetPreview()
         layout.addWidget(self.preview, 1)
 
-        # Load existing settings or apply defaults
+        # Load or apply defaults
         if os.path.exists(SETTINGS_PATH):
             self._load_settings(SETTINGS_PATH, autobackup=True)
         else:
             self._apply_defaults()
 
-        # Connect autosave on change
+        # Connect autosave on all inputs
         for w in (
             self.in_w, self.in_h, self.in_mt, self.in_ml,
             self.in_rg, self.in_cg, self.in_rows, self.in_cols,
@@ -191,7 +194,7 @@ class SheetEditor(QWidget):
 
         self.save_btn.clicked.connect(lambda: self._load_settings(None, autobackup=False))
         self.load_btn.clicked.connect(lambda: self._load_settings(None, autobackup=False))
-        self.print_btn.clicked.connect(self._print_grid)
+        self.print_btn.clicked.connect(self._print_grid)   # <-- Only here!
 
         # Initial preview
         self.preview.update_preview(self.get_settings())
@@ -217,7 +220,6 @@ class SheetEditor(QWidget):
         self.preview.update_preview(self.get_settings())
 
     def _populate_from_settings(self, s):
-        # geometry
         self.in_w.setText(str(s.get("label_width_mm", 63.5)))
         self.in_h.setText(str(s.get("label_height_mm", 38.1)))
         self.in_mt.setText(str(s.get("margin_top_mm", 10)))
@@ -226,7 +228,6 @@ class SheetEditor(QWidget):
         self.in_cg.setText(str(s.get("col_gap_mm", 2.5)))
         self.in_rows.setValue(s.get("rows", 7))
         self.in_cols.setValue(s.get("cols", 3))
-        # fonts
         for tag in ("name", "type", "price"):
             getattr(self, f"{tag}_font_combo").setCurrentText(s.get(f"{tag}_font", FONTS_LIST[0] if FONTS_LIST else ""))
             getattr(self, f"{tag}_font_size").setValue(s.get(f"{tag}_size_pt", 11 if tag!="type" else 9))
@@ -278,14 +279,16 @@ class SheetEditor(QWidget):
         """
         Print only the blue calibration grid (no labels).
         """
-        # 1) Setup printer
+        from PyQt5.QtCore import QRectF
+        from PyQt5.QtGui import QPen, QColor, QPainter
+        from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
+
         printer = QPrinter(QPrinter.HighResolution)
         printer.setPageSize(QPrinter.A4)
         dlg = QPrintDialog(printer, self)
         if dlg.exec_() != QPrintDialog.Accepted:
             return
 
-        # 2) Begin painting
         painter = QPainter(printer)
         painter.setRenderHint(QPainter.Antialiasing)
         pen = QPen(QColor("#1c80e9"))
@@ -293,10 +296,8 @@ class SheetEditor(QWidget):
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush)
 
-        # 3) mm → points conversion
         mm_to_pt = lambda mm: mm * 72 / 25.4
 
-        # 4) Read settings
         s = self.get_settings()
         lw = float(s["label_width_mm"])
         lh = float(s["label_height_mm"])
@@ -307,30 +308,23 @@ class SheetEditor(QWidget):
         rows = int(s["rows"])
         cols = int(s["cols"])
 
-        # 5) Scale & center to A4
-        pw = printer.pageRect().width()
-        ph = printer.pageRect().height()
-        aw_pt = mm_to_pt(210)
-        ah_pt = mm_to_pt(297)
-        scale = min(pw / aw_pt, ph / ah_pt)
-        painter.translate((pw - aw_pt * scale) / 2, (ph - ah_pt * scale) / 2)
-        painter.scale(scale, scale)
+        factor = printer.resolution() / 72.0
+        painter.scale(factor, factor)
 
-        # 6) Draw the grid outlines
         for r in range(rows):
             for c in range(cols):
-                x = ml + c * (lw + cg)
-                y = mt + r * (lh + rg)
-                # use QRectF instead of raw floats
+                x = mm_to_pt(ml + c * (lw + cg))
+                y = mm_to_pt(mt + r * (lh + rg))
                 rect = QRectF(
-                    mm_to_pt(x),
-                    mm_to_pt(y),
+                    x,
+                    y,
                     mm_to_pt(lw),
                     mm_to_pt(lh)
                 )
                 painter.drawRoundedRect(rect, 8, 8)
 
         painter.end()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

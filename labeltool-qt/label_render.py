@@ -1,7 +1,7 @@
 # label_render.py
 
 from PyQt5.QtGui import QFont, QFontMetrics, QPixmap
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QRectF
 from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.utils import ImageReader
 
@@ -9,6 +9,7 @@ from reportlab.lib.utils import ImageReader
 def get_reportlab_font_name(base_name, bold, italic):
     """
     Return a ReportLab-registered font name, or fall back to Helvetica.
+    Checks for Bold, Oblique, and BoldOblique variants.
     """
     name = base_name
     if bold and italic:
@@ -26,8 +27,8 @@ def get_reportlab_font_name(base_name, bold, italic):
 
 def wrap_text_and_scale(qf: QFont, text: str, max_width: float):
     """
-    For QPainter: wrap up to two lines, shrinking font if needed.
-    Returns (wrapped_text, new QFont).
+    For QPainter: wrap `text` into up to two lines, shrinking font if needed.
+    Returns (wrapped_text, QFont).
     """
     size = qf.pointSize()
     words = text.split()
@@ -45,23 +46,26 @@ def wrap_text_and_scale(qf: QFont, text: str, max_width: float):
                 curr = test
         if curr:
             lines.append(curr)
-        # if it fits in two lines
         if len(lines) <= 2 and all(fm.width(ln) <= max_width for ln in lines):
-            return ("\n".join(lines),
-                    QFont(qf.family(), size, qf.weight(), qf.italic()))
+            return ("\n".join(lines), QFont(qf.family(), size, qf.weight(), qf.italic()))
         size -= 1
 
-    # Too long: truncate single line
+    # truncate if too long
     fm = QFontMetrics(qf)
     avg = fm.averageCharWidth() or 1
     count = int(max_width // avg)
     return (text[:count] + "...", QFont(qf.family(), size))
 
 
-def wrap_text_and_scale_reportlab(font_name: str, text: str,
-                                  font_size: float, max_width: float, device):
+def wrap_text_and_scale_reportlab(
+    font_name: str,
+    text: str,
+    font_size: float,
+    max_width: float,
+    device
+):
     """
-    For ReportLab: wrap up to two lines, shrinking font if needed.
+    For ReportLab: wrap `text` into up to two lines, shrinking font if needed.
     Returns (wrapped_text, final_font_size).
     """
     words = text.split()
@@ -78,15 +82,19 @@ def wrap_text_and_scale_reportlab(font_name: str, text: str,
                 curr = test
         if curr:
             lines.append(curr)
-        if (len(lines) <= 2 and
-            all(device.stringWidth(ln, font_name, sz) <= max_width for ln in lines)):
+        if len(lines) <= 2 and all(device.stringWidth(ln, font_name, sz) <= max_width for ln in lines):
             return ("\n".join(lines), sz)
         sz -= 1
     return (text[:15] + "...", sz)
 
 
-def draw_labels_grid(backend: str, device, settings: dict,
-                     labels: list, logo_path: str = None):
+def draw_labels_grid(
+    backend: str,
+    device,
+    settings: dict,
+    labels: list,
+    logo_path: str = None,
+):
     """
     Draws labels on either QPainter (backend="qtpainter")
     or ReportLab Canvas (backend="reportlab").
@@ -118,7 +126,7 @@ def draw_labels_grid(backend: str, device, settings: dict,
         w_pt = mm_to_pt(lw)
         h_pt = mm_to_pt(lh)
 
-        # Build text lines: name, type, price_bgn, price_eur
+        # Build text lines
         lines = []
         if data.get("name"):
             lines.append(("name", data["name"]))
@@ -192,23 +200,22 @@ def draw_labels_grid(backend: str, device, settings: dict,
                     cy -= fs * 1.3
             continue
 
-        # QPainter branch
+        # QPainter branch with centered text
         sy = mm_to_pt(mt + row * (lh + rg)) + (h_pt - total_h) / 2
+
+        # draw logo if any
         if data.get("logo") and logo_pixmap:
             lg = mm_to_pt(11)
             lx = x + 3
             ly = sy + (total_h - lg) / 2
             device.drawPixmap(int(lx), int(ly), int(lg), int(lg), logo_pixmap)
-            tx = lx + lg + 6
-        else:
-            tx = x + 2
 
         cy = sy
         for qf, block in zip(font_objs, txt_blocks):
             device.setFont(qf)
             fm = QFontMetrics(qf)
-            for line in block.split("\n"):
-                wtext = fm.width(line)
-                xpos = tx if data.get("logo") else x + (w_pt - wtext) / 2
-                device.drawText(int(xpos), int(cy + fm.ascent()), line)
-                cy += fm.height()
+            line_h = fm.height()
+            for ln in block.split("\n"):
+                rect = QRectF(x, cy, w_pt, line_h)
+                device.drawText(rect, Qt.AlignHCenter | Qt.AlignTop, ln)
+                cy += line_h
