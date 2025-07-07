@@ -1,7 +1,6 @@
 # sheet_widget.py
 
 import os
-import csv
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QFileDialog, QMessageBox
 )
@@ -15,7 +14,6 @@ from selection_manager import SelectionManager
 from clipboard_manager import ClipboardManager
 from printer_rl import export_to_pdf
 
-# Always use config/session.json in the same folder as this .py
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR  = os.path.join(BASE_DIR, "config")
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -71,8 +69,8 @@ class SheetWidget(QWidget):
         # Hook toolbar actions
         self.toolbar.selectAllRequested.connect(self.selection.select_all)
         self.toolbar.clearRequested.connect(self._confirm_and_clear)
-        self.toolbar.saveSessionRequested.connect(self.session.save_session)
-        self.toolbar.loadSessionRequested.connect(self.session.load_session)
+        self.toolbar.saveSessionRequested.connect(self.save_session_csv)
+        self.toolbar.loadSessionRequested.connect(self.load_session_csv)
         self.toolbar.printRequested.connect(self._print_to_printer)
         self.toolbar.exportRequested.connect(self.export_pdf)
 
@@ -194,7 +192,50 @@ class SheetWidget(QWidget):
                                     s.get("price_font", "Helvetica-Bold"),
                                     s.get("price_size_pt", 11))
 
-    # For explicit save/load if ever needed
+    def save_session_csv(self):
+        fn, _ = QFileDialog.getSaveFileName(self, "Запази сесия (CSV)", "", "CSV Files (*.csv)")
+        if not fn:
+            return
+        try:
+            with open(fn, "w", newline="", encoding="utf-8") as f:
+                import csv
+                w = csv.writer(f)
+                w.writerow(["name", "type", "price_bgn", "price_eur", "unit_eur", "logo"])
+                for lbl in self.labels:
+                    d = lbl.get_export_data()
+                    w.writerow([
+                        d["name"], d["type"],
+                        d["price_bgn"], d["price_eur"],
+                        d["unit_eur"], d["logo"]
+                    ])
+            QMessageBox.information(self, "Запазено", f"CSV записан в:\n{fn}")
+        except Exception as e:
+            QMessageBox.warning(self, "Грешка", f"Не можа да запише CSV:\n{e}")
+
+    def load_session_csv(self):
+        fn, _ = QFileDialog.getOpenFileName(self, "Зареди сесия (CSV)", "", "CSV Files (*.csv)")
+        if not fn:
+            return
+        try:
+            with open(fn, "r", newline="", encoding="utf-8") as f:
+                import csv
+                rows = list(csv.DictReader(f))
+            for i, entry in enumerate(rows):
+                if i >= len(self.labels):
+                    break
+                lbl = self.labels[i]
+                lbl.set_name(entry.get("name", ""))
+                lbl.set_type(entry.get("type", ""))
+                lbl.set_price(entry.get("price_bgn", ""))
+                lbl.set_price_eur(entry.get("price_eur", ""))
+                lbl.set_unit_eur_text(entry.get("unit_eur", ""))
+                lbl.set_logo(entry.get("logo", "False") in ("True", "true", "1"))
+            self.labelsChanged.emit()
+            QMessageBox.information(self, "Заредено", f"Сесията е заредена от:\n{fn}")
+        except Exception as e:
+            QMessageBox.warning(self, "Грешка", f"Не можа да зареди CSV:\n{e}")
+
+    # For explicit save/load if ever needed (compat)
     def save_session(self):
         self.session.save_session()
     def load_session(self):
