@@ -6,34 +6,38 @@ from reportlab.lib.utils import ImageReader
 import os
 
 # === VERTICAL SPACING (pixels, in pt units) ===
-PADDING_TOP = 8
-GAP_NAME_TYPE = -5
+PADDING_TOP = 40
+GAP_NAME_TYPE = -8
 GAP_TYPE_PRICE = 14
 GAP_BETWEEN_PRICES = -5
-PADDING_BOTTOM_UNIT = 5  # Space from bottom to unit line
+PADDING_BOTTOM_UNIT = 5
 # ==============================================
 
-# Register DejaVu Sans if available
+# --- Register DejaVu Sans family for ReportLab ---
 FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
-TTF_FONTS = {
-    "DejaVu Sans": os.path.join(FONT_DIR, "DejaVuSans.ttf"),
-    "Arial": os.path.join(FONT_DIR, "arial.ttf"),
-    "Liberation Sans": os.path.join(FONT_DIR, "LiberationSans-Regular.ttf"),
+DEJAVU_FONTS = {
+    "DejaVu Sans": "DejaVuSans.ttf",
+    "DejaVu Sans-Bold": "DejaVuSans-Bold.ttf",
+    "DejaVu Sans-Oblique": "DejaVuSans-Oblique.ttf",
+    "DejaVu Sans-BoldOblique": "DejaVuSans-BoldOblique.ttf"
 }
-for name, path in TTF_FONTS.items():
+for name, fname in DEJAVU_FONTS.items():
+    path = os.path.join(FONT_DIR, fname)
     if os.path.exists(path) and name not in pdfmetrics.getRegisteredFontNames():
         pdfmetrics.registerFont(TTFont(name, path))
 
 def get_reportlab_font_name(base_name, bold, italic):
-    # Use only TTF names you know you have, fallback to Helvetica.
+    name = base_name
+    if bold and italic:
+        name += "-BoldOblique"
+    elif bold:
+        name += "-Bold"
+    elif italic:
+        name += "-Oblique"
+    if name in pdfmetrics.getRegisteredFontNames():
+        return name
     if base_name in pdfmetrics.getRegisteredFontNames():
         return base_name
-    if base_name == "Arial" and "Arial" in pdfmetrics.getRegisteredFontNames():
-        return "Arial"
-    if base_name == "DejaVu Sans" and "DejaVu Sans" in pdfmetrics.getRegisteredFontNames():
-        return "DejaVu Sans"
-    if base_name == "Liberation Sans" and "Liberation Sans" in pdfmetrics.getRegisteredFontNames():
-        return "Liberation Sans"
     return "Helvetica"
 
 def wrap_text_and_scale(qf: QFont, text: str, max_width: float):
@@ -120,16 +124,16 @@ def draw_labels_grid(
         w_pt = mm_to_pt(lw)
         h_pt = mm_to_pt(lh)
 
-        # --- Gather main fields ---
+        # --- Gather main fields with per-line tags ---
         main_lines = []
         if data.get("name"):
             main_lines.append(("name", data["name"]))
         if data.get("type"):
             main_lines.append(("type", data["type"]))
         if data.get("price_bgn"):
-            main_lines.append(("price", f"{data['price_bgn']} лв."))
+            main_lines.append(("price_bgn", f"{data['price_bgn']} лв."))
         if data.get("price_eur"):
-            main_lines.append(("price", f"€{data['price_eur']}"))
+            main_lines.append(("price_eur", f"€{data['price_eur']}"))
 
         unit = data.get("unit_eur", "").strip()
         has_unit = bool(unit)
@@ -141,35 +145,31 @@ def draw_labels_grid(
         if backend == "qtpainter":
             font_objs, txt_blocks, heights = [], [], []
             for i, (tag, txt) in enumerate(main_lines):
-                # Always use price font for both prices
-                if tag == "price":
+                if tag == "name":
+                    fam, sz_pt, bd, it = get_font("name")
+                elif tag == "type":
+                    fam, sz_pt, bd, it = get_font("type")
+                elif tag in ("price_bgn", "price_eur"):
                     fam, sz_pt, bd, it = get_font("price")
                 else:
-                    fam, sz_pt, bd, it = get_font(tag)
-                # But since tags now are "price", we can just use get_font(tag)
+                    fam, sz_pt, bd, it = get_font("name")
                 qf = QFont(fam, sz_pt)
                 qf.setBold(bd)
                 qf.setItalic(it)
                 if i == 0:
-                    wrapped, qf2 = wrap_text_and_scale(qf, txt, max_w)
-                    font_objs.append(qf2)
-                    txt_blocks.append(wrapped)
-                    heights.append(QFontMetrics(qf2).height() * (wrapped.count("\n") + 1))
+                    wrapped, qf_final = wrap_text_and_scale(qf, txt, max_w)
                 else:
-                    fm = QFontMetrics(qf)
-                    font_objs.append(qf)
-                    txt_blocks.append(txt)
-                    heights.append(fm.height())
-            # Height of unit (fixed small italic)
+                    wrapped, qf_final = txt, qf
+                font_objs.append(qf_final)
+                txt_blocks.append(wrapped)
+                fm = QFontMetrics(qf_final)
+                heights.append(fm.height() * (wrapped.count("\n") + 1))
             unit_font = QFont(settings.get("type_font", "DejaVu Sans"), 9)
             unit_font.setItalic(True)
             unit_fm = QFontMetrics(unit_font)
             unit_height = unit_fm.height()
 
-            # --- Vertical positioning math ---
-            # Calculate total height of "main" block (not including unit)
             main_total_h = sum(heights)
-            # Add spacings between lines
             if len(main_lines) >= 2:
                 main_total_h += GAP_NAME_TYPE
             if len(main_lines) >= 3:
@@ -177,11 +177,9 @@ def draw_labels_grid(
             if len(main_lines) == 4:
                 main_total_h += GAP_BETWEEN_PRICES
 
-            # Center the main block vertically, accounting for unit at bottom
             available_height = h_pt - unit_height - PADDING_BOTTOM_UNIT - PADDING_TOP
             sy = mm_to_pt(mt + row * (lh + rg)) + PADDING_TOP + (available_height - main_total_h) / 2
 
-            # Draw logo (if any)
             if data.get("logo") and logo_pixmap:
                 lg = mm_to_pt(11)
                 lx = x + 3
@@ -196,7 +194,6 @@ def draw_labels_grid(
                     rect = QRectF(x, cy, w_pt, fm.height())
                     device.drawText(rect, Qt.AlignHCenter | Qt.AlignTop, ln)
                     cy += fm.height()
-                # Add custom gaps after specific lines:
                 if i == 0 and len(main_lines) > 1:
                     cy += GAP_NAME_TYPE
                 if i == 1 and len(main_lines) > 2:
@@ -204,7 +201,6 @@ def draw_labels_grid(
                 if i == 2 and len(main_lines) > 3:
                     cy += GAP_BETWEEN_PRICES
 
-            # Draw unit, always at same place, right-aligned and small italic
             if has_unit:
                 device.setFont(unit_font)
                 unit_rect = QRectF(
@@ -217,14 +213,17 @@ def draw_labels_grid(
 
             continue
 
-        # --- ReportLab branch ---
+        # --- ReportLab branch (PDF) ---
         font_objs, txt_blocks, heights = [], [], []
         for i, (tag, txt) in enumerate(main_lines):
-            # Always use the price font for both prices
-            if tag == "price":
+            if tag == "name":
+                fam, sz_pt, bd, it = get_font("name")
+            elif tag == "type":
+                fam, sz_pt, bd, it = get_font("type")
+            elif tag in ("price_bgn", "price_eur"):
                 fam, sz_pt, bd, it = get_font("price")
             else:
-                fam, sz_pt, bd, it = get_font(tag)
+                fam, sz_pt, bd, it = get_font("name")
             rl_name = get_reportlab_font_name(fam, bd, it)
             if i == 0:
                 wrapped, new_sz = wrap_text_and_scale_reportlab(
@@ -280,10 +279,9 @@ def draw_labels_grid(
                 cy -= GAP_NAME_TYPE
             if tag == "type" and len(main_lines) > 2:
                 cy -= GAP_TYPE_PRICE
-            if tag.startswith("price") and len(main_lines) > 3:
+            if tag in ("price_bgn", "price_eur") and len(main_lines) > 3:
                 cy -= GAP_BETWEEN_PRICES
 
-        # Draw unit
         if has_unit:
             device.setFont(unit_rl_name, unit_sz)
             unit_y = y0 + unit_height + PADDING_BOTTOM_UNIT

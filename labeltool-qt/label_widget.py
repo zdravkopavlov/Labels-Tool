@@ -1,14 +1,12 @@
-# PATCHED: label_widget.py
-
 from PyQt5.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout,
     QLineEdit, QLabel, QMenu, QAction
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QFont, QPalette, QColor, QPixmap, QPainter, QPen
-from currency_manager import CurrencyManager  # <— your new manager
-from currency_manager import QObject         # needed for focus event signatures
-from context_menu import make_label_context_menu # <— context menu builder
+from currency_manager import CurrencyManager
+from currency_manager import QObject
+from context_menu import make_label_context_menu
 
 PREDEFINED_UNITS = ["", "бр.", "м", "м²", "м³", "кг.", "л."]
 
@@ -42,7 +40,7 @@ class LabelWidget(QWidget):
         self._hovered  = False
         self._show_logo = show_logo
 
-        # -- Layout & sizing (you’ve already trimmed to 240×120) --
+        # -- Layout & sizing --
         outer = QHBoxLayout(self)
         outer.setContentsMargins(8, 14, 8, 8)
         outer.setSpacing(8)
@@ -122,14 +120,12 @@ class LabelWidget(QWidget):
                     self.price_bgn_edit, self.price_eur_edit):
             fld.textChanged.connect(self.changed.emit)
 
-        # === NEW: currency behavior managed here ===
         CurrencyManager(
             bgn_edit=self.price_bgn_edit,
             eur_edit=self.price_eur_edit,
             rate=1.95583,
-            convert_on="keystroke"  # or "focusout" if you prefer
+            convert_on="keystroke"
         )
-        # =============================================
 
     def _set_placeholder_bright(self, w):
         pal = w.palette()
@@ -137,11 +133,10 @@ class LabelWidget(QWidget):
         w.setPalette(pal)
 
     def _format_unit(self, u):
-        u = u.strip()
+        u = (u or "").strip()
         return f"/ {u}" if u else ""
 
     def _show_context_menu(self, pos):
-        # find the SheetWidget parent (which has .selection and .labels)
         sw = self.parent()
         while sw and not hasattr(sw, "selection"):
             sw = sw.parent()
@@ -156,7 +151,7 @@ class LabelWidget(QWidget):
             self.subtype_edit.text(),
             self.price_bgn_edit.text(),
             self.price_eur_edit.text(),
-            self.unit_eur_label.text()
+            self.get_unit_eur()  # Always raw value!
         )
 
     def _paste(self):
@@ -181,29 +176,37 @@ class LabelWidget(QWidget):
         ):
             setter(txt)
 
-    # PATCH: minimal setter for right-click menu compatibility
     def set_unit_eur(self, v):
         self.set_unit_eur_text(v)
 
-    # getters/setters for uniform API:
-    def set_logo(self, show: bool):     self._show_logo = show; self.logo_label.setVisible(show); self.update_style()
+    def set_logo(self, show: bool):
+        self._show_logo = show
+        self.logo_label.setVisible(show)
+        self.update_style()
+
     def get_export_data(self):
         return {
-            "name":        self.name_edit.text(),
-            "type":        self.subtype_edit.text(),
+            "name":        self.name_edit.text().strip(),
+            "type":        self.subtype_edit.text().strip(),
             "price_bgn":   self.price_bgn_edit.text().replace(" лв.","").strip(),
             "price_eur":   self.price_eur_edit.text().lstrip("€").strip(),
-            "unit_eur":    self.get_unit_eur(),
+            "unit_eur":    self.get_unit_eur().strip(),  # Always raw
             "logo":        self._show_logo,
         }
+
     def get_unit_eur(self):
         t = self.unit_eur_label.text().strip()
+        # Remove a single leading "/ " if present
         return t[2:] if t.startswith("/ ") else t
-    def set_name(self, v):             self.name_edit.setText(v)
-    def set_type(self, v):             self.subtype_edit.setText(v)
-    def set_price(self, v):            self.price_bgn_edit.setText(v)
-    def set_price_eur(self, v):        self.price_eur_edit.setText(v)
-    def set_unit_eur_text(self, v):    self.unit_eur_label.setText(self._format_unit(v))
+
+    def set_name(self, v): self.name_edit.setText(v)
+    def set_type(self, v): self.subtype_edit.setText(v)
+    def set_price(self, v): self.price_bgn_edit.setText(v)
+    def set_price_eur(self, v): self.price_eur_edit.setText(v)
+    def set_unit_eur_text(self, v):
+        v = (v or "").strip()
+        self.unit_eur_label.setText(self._format_unit(v))
+        self.changed.emit()
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
@@ -211,12 +214,17 @@ class LabelWidget(QWidget):
         super().mousePressEvent(e)
 
     def enterEvent(self, e):
-        self._hovered = True; self.update_style(); super().enterEvent(e)
+        self._hovered = True
+        self.update_style()
+        super().enterEvent(e)
     def leaveEvent(self, e):
-        self._hovered = False; self.update_style(); super().leaveEvent(e)
+        self._hovered = False
+        self.update_style()
+        super().leaveEvent(e)
 
     def set_selected(self, sel: bool):
-        self._selected = sel; self.update_style()
+        self._selected = sel
+        self.update_style()
 
     def update_style(self):
         border = "#008cff" if self._selected else "#888888"

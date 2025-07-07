@@ -47,5 +47,5 @@ class SessionManager:
             lbl.set_type(item.get("type", ""))
             lbl.set_price(item.get("price_bgn", ""))
             lbl.set_price_eur(item.get("price_eur", ""))
-            lbl.set_unit_eur_text(item.get("unit_eur", ""))
+            lbl.set_unit_eur_text((item.get("unit_eur") or "").strip())  # <--- PATCHED LINE
             lbl.set_logo(item.get("logo", False))
