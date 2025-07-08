@@ -5,5 +5,3 @@ dist/
 build/
 Labels Tool.code-workspace
 Build EXE.txt
-*.spec
-Drag and drop.py

@@ -1,0 +1,22 @@
+{
+  "label_width_mm": 63.5,
+  "label_height_mm": 38.1,
+  "margin_top_mm": 15.0,
+  "margin_left_mm": 7.0,
+  "row_gap_mm": 0.0,
+  "col_gap_mm": 2.5,
+  "rows": 7,
+  "cols": 3,
+  "name_font": "Arial-bold",
+  "name_size_pt": 20,
+  "name_bold": true,
+  "name_italic": false,
+  "type_font": "Arial-italic",
+  "type_size_pt": 12,
+  "type_bold": false,
+  "type_italic": true,
+  "price_font": "Arial Black",
+  "price_size_pt": 24,
+  "price_bold": true,
+  "price_italic": false
+}

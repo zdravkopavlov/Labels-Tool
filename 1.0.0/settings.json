@@ -1,0 +1,52 @@
+{
+    "top_margin_mm": 7.5,
+    "row_correction_mm": 1.1,
+    "left_margin_mm": -5.5,
+    "col_gap_mm": 1.0,
+    "name_font_family": "DejaVuSans",
+    "name_font_size": 28,
+    "name_bold": true,
+    "name_italic": false,
+    "sub_font_family": "DejaVuSans",
+    "sub_font_size": 16,
+    "sub_bold": false,
+    "sub_italic": true,
+    "price_font_family": "DejaVuSans",
+    "price_font_size": 23,
+    "price_bold": true,
+    "price_italic": false,
+    "show_logo": false,
+    "show_bgn": true,
+    "show_eur": true,
+    "show_guides": true,
+    "session_items": [
+        {
+            "name_main": "aaaaaa",
+            "name_sub": "",
+            "price_bgn": "20",
+            "unit": "",
+            "copies": "1"
+        },
+        {
+            "name_main": "bbbbbb",
+            "name_sub": "",
+            "price_bgn": "20",
+            "unit": "",
+            "copies": "1"
+        },
+        {
+            "name_main": "ccccccc",
+            "name_sub": "",
+            "price_bgn": "20",
+            "unit": "",
+            "copies": "1"
+        },
+        {
+            "name_main": "",
+            "name_sub": "",
+            "price_bgn": "",
+            "unit": "",
+            "copies": "1"
+        }
+    ]
+}
