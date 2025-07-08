@@ -2,8 +2,19 @@
 
 import json
 import os
+import sys
 
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QCheckBox, QLabel, QComboBox, QSizePolicy
+
+def get_config_path():
+    # Same logic as sheet_editor_widget.py for compatibility
+    try:
+        base = sys._MEIPASS  # If running as PyInstaller bundle
+    except AttributeError:
+        base = os.path.dirname(os.path.abspath(__file__))
+    config_dir = os.path.join(base, "config")
+    os.makedirs(config_dir, exist_ok=True)
+    return os.path.join(config_dir, "settings.json")
 
 class BottomToolbarWidget(QWidget):
     def __init__(self, parent=None):
@@ -45,7 +56,10 @@ class BottomToolbarWidget(QWidget):
         # Set the main layout
         self.setLayout(layout)
 
-    def save_settings(self, filename="config/settings.json"):
+    def save_settings(self, filename=None):
+        # Use shared config path if not given
+        if filename is None:
+            filename = get_config_path()
         settings = {
             "show_logo": self.chk_show_logo.isChecked(),
             "show_bgn": self.chk_show_bgn.isChecked(),
@@ -56,7 +70,9 @@ class BottomToolbarWidget(QWidget):
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)      
 
-    def load_settings(self, filename="config/settings.json"):
+    def load_settings(self, filename=None):
+        if filename is None:
+            filename = get_config_path()
         if not os.path.exists(filename):
             return
         with open(filename, "r", encoding="utf-8") as f:
