@@ -18,7 +18,7 @@ class DashedUnderlineLabel(QLabel):
         pen.setWidth(1)
         pen.setStyle(Qt.DashLine)
         painter.setPen(pen)
-        y = self.height() - 2
+        y = self.height()
         painter.drawLine(0, y, self.width(), y)
         painter.end()
 
@@ -63,7 +63,8 @@ class LabelWidget(QWidget):
         vlay.setContentsMargins(4, 4, 4, 4)
         outer.addWidget(content, stretch=1)
 
-        borderless = "border: none; background: #fff;"
+        borderless = "border: none; background: #eeeeee;"
+        dashed = "border: 1px dashed #bbbbbb; background: #fff;"
 
         # Name
         self.name_edit = QLineEdit(name)
@@ -71,7 +72,7 @@ class LabelWidget(QWidget):
         self.name_edit.setPlaceholderText("Артикул")
         self.name_edit.setAlignment(Qt.AlignCenter)
         self._set_placeholder_bright(self.name_edit)
-        self.name_edit.setStyleSheet(borderless)
+        self.name_edit.setStyleSheet(dashed)
         vlay.addWidget(self.name_edit)
 
         # Subtype
@@ -81,7 +82,7 @@ class LabelWidget(QWidget):
         self.subtype_edit.setPlaceholderText("(вид или марка)")
         self.subtype_edit.setAlignment(Qt.AlignCenter)
         self._set_placeholder_bright(self.subtype_edit)
-        self.subtype_edit.setStyleSheet(borderless)
+        self.subtype_edit.setStyleSheet(dashed)
         vlay.addWidget(self.subtype_edit)
 
         # BGN price
@@ -89,7 +90,7 @@ class LabelWidget(QWidget):
         self.price_bgn_edit.setFont(QFont("Arial", 16, QFont.Bold))
         self._set_placeholder_bright(self.price_bgn_edit)
         self.price_bgn_edit.setAlignment(Qt.AlignCenter)
-        self.price_bgn_edit.setStyleSheet(borderless)
+        self.price_bgn_edit.setStyleSheet(dashed)
         vlay.addWidget(self.price_bgn_edit)
 
         # EUR price
@@ -97,7 +98,7 @@ class LabelWidget(QWidget):
         self.price_eur_edit.setFont(QFont("Arial", 16, QFont.Bold))
         self._set_placeholder_bright(self.price_eur_edit)
         self.price_eur_edit.setAlignment(Qt.AlignCenter)
-        self.price_eur_edit.setStyleSheet(borderless)
+        self.price_eur_edit.setStyleSheet(dashed)
         vlay.addWidget(self.price_eur_edit)
 
         # Unit label
@@ -238,6 +239,6 @@ class LabelWidget(QWidget):
         self.update_style()
 
     def update_style(self):
-        border = "#008cff" if self._selected else "#888888"
+        border = "#006eff" if self._selected else "#888888"
         w = "3px" if (self._selected or self._hovered) else "1px"
-        self.setStyleSheet(f"QWidget {{ background: #fff; border: {w} solid {border}; border-radius: 7px; }}")
+        self.setStyleSheet(f"QWidget {{ background: #eeeeee; border: {w} solid {border}; border-radius: 7px; }}")

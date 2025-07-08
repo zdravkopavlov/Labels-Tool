@@ -19,9 +19,9 @@ class ToolbarWidget(QWidget):
 
         # ── left group ─────────────────────────────────────────────────────────
         self.select_all_btn    = QPushButton("Избери всички")
-        self.clear_btn         = QPushButton("Изчисти")
-        self.save_sess_btn     = QPushButton("Запази сесия...")
-        self.load_sess_btn     = QPushButton("Зареди сесия...")  # ← new
+        self.clear_btn         = QPushButton(" 🗑️ Изчисти")
+        self.save_sess_btn     = QPushButton(" 💾 Запази сесия...")
+        self.load_sess_btn     = QPushButton(" 📂 Зареди сесия...")  # ← new
 
         for btn, sig in (
             (self.select_all_btn,   self.selectAllRequested),
@@ -36,8 +36,8 @@ class ToolbarWidget(QWidget):
         layout.addStretch(1)
 
         # ── right group ───────────────────────────────────────────────────────
-        self.print_btn    = QPushButton("Печат")
-        self.export_btn   = QPushButton("Запази PDF")
+        self.print_btn    = QPushButton(" 🖨️ Печат")
+        self.export_btn   = QPushButton(" 📄 Запази PDF")
         for btn, sig in (
             (self.print_btn,   self.printRequested),
             (self.export_btn,  self.exportRequested),
