@@ -64,6 +64,12 @@ class SheetWidget(QWidget):
 
         self.bottom_toolbar = BottomToolbarWidget()
         self.layout.addWidget(self.bottom_toolbar)
+        self.bottom_toolbar.load_settings()
+        self.bottom_toolbar.chk_show_logo.stateChanged.connect(lambda _: self.bottom_toolbar.save_settings())
+        self.bottom_toolbar.chk_show_bgn.stateChanged.connect(lambda _: self.bottom_toolbar.save_settings())
+        self.bottom_toolbar.chk_show_eur.stateChanged.connect(lambda _: self.bottom_toolbar.save_settings())
+        self.bottom_toolbar.cmb_convert.currentIndexChanged.connect(lambda _: self.bottom_toolbar.save_settings())
+
 
         # Build label grid
         self._populate_grid()
@@ -83,6 +89,8 @@ class SheetWidget(QWidget):
         self.toolbar.loadSessionRequested.connect(self.load_session_csv)
         self.toolbar.printRequested.connect(self._print_to_printer)
         self.toolbar.exportRequested.connect(self.export_pdf)
+        self.bottom_toolbar.cmb_convert.currentIndexChanged.connect(self.on_conversion_mode_changed)
+
 
         # Hand cursor & change notifications
         for lbl in self.labels:
@@ -90,6 +98,19 @@ class SheetWidget(QWidget):
             lbl.changed.connect(self.labelsChanged.emit)
 
         self.labelsChanged.connect(self.session.save_session)
+
+    def on_conversion_mode_changed(self, index):
+        if index == 0:
+            mode = "bgn_to_eur"
+        elif index == 1:
+            mode = "eur_to_bgn"
+        elif index == 2:
+            mode = "both"
+        else:
+            mode = "manual"
+        for lbl in getattr(self, 'labels', []):
+            if hasattr(lbl, "currency_manager"):
+                lbl.currency_manager.set_conversion_mode(mode)    
 
     def _populate_grid(self):
         if self.scroll.widget():

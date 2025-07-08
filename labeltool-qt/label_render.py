@@ -6,7 +6,7 @@ from reportlab.lib.utils import ImageReader
 import os
 
 # === VERTICAL SPACING (pixels, in pt units) ===
-PADDING_TOP = 30
+PADDING_TOP = 45
 GAP_HEADER = -6        # between name and type, if both present
 GAP_HEADER_PRICE = 15  # between header group and price group
 GAP_PRICES = -5        # between BGN and EUR prices, if both present

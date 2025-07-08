@@ -43,6 +43,28 @@ class CurrencyManager(QObject):
         self.eur.focusInEvent  = self._make_focusin(self.eur,  suffix="",     prefix="€")
         self.eur.focusOutEvent = self._make_focusout(self.eur, suffix="",     prefix="€")
 
+    def set_conversion_mode(self, mode):
+        # Disconnect everything first (safe to ignore exceptions)
+        try:
+            self.bgn.textChanged.disconnect(self._on_bgn)
+        except Exception:
+            pass
+        try:
+            self.eur.textChanged.disconnect(self._on_eur)
+        except Exception:
+            pass
+
+        # Reconnect as needed
+        if mode == "bgn_to_eur":
+            self.bgn.textChanged.connect(self._on_bgn)
+        elif mode == "eur_to_bgn":
+            self.eur.textChanged.connect(self._on_eur)
+        elif mode == "both":
+            self.bgn.textChanged.connect(self._on_bgn)
+            self.eur.textChanged.connect(self._on_eur)
+        # else "manual" does not connect anything
+
+
     def _on_bgn(self, *_):
         if self.updating: return
         txt = self.bgn.text().replace(" лв.","").strip().replace(",",".")

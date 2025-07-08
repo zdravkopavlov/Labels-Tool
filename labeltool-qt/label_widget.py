@@ -67,7 +67,7 @@ class LabelWidget(QWidget):
 
         # Name
         self.name_edit = QLineEdit(name)
-        self.name_edit.setFont(QFont("Arial", 13, QFont.Bold))
+        self.name_edit.setFont(QFont("Arial", 16, QFont.Bold))
         self.name_edit.setPlaceholderText("Артикул")
         self.name_edit.setAlignment(Qt.AlignCenter)
         self._set_placeholder_bright(self.name_edit)
@@ -76,7 +76,7 @@ class LabelWidget(QWidget):
 
         # Subtype
         self.subtype_edit = QLineEdit(subtype)
-        f_italic = QFont("Arial", 10); f_italic.setItalic(True)
+        f_italic = QFont("Arial", 12); f_italic.setItalic(True)
         self.subtype_edit.setFont(f_italic)
         self.subtype_edit.setPlaceholderText("(вид или марка)")
         self.subtype_edit.setAlignment(Qt.AlignCenter)
@@ -86,7 +86,7 @@ class LabelWidget(QWidget):
 
         # BGN price
         self.price_bgn_edit = QLineEdit(price_bgn)
-        self.price_bgn_edit.setFont(QFont("Arial", 14, QFont.Bold))
+        self.price_bgn_edit.setFont(QFont("Arial", 16, QFont.Bold))
         self._set_placeholder_bright(self.price_bgn_edit)
         self.price_bgn_edit.setAlignment(Qt.AlignCenter)
         self.price_bgn_edit.setStyleSheet(borderless)
@@ -94,7 +94,7 @@ class LabelWidget(QWidget):
 
         # EUR price
         self.price_eur_edit = QLineEdit(price_eur)
-        self.price_eur_edit.setFont(QFont("Arial", 14, QFont.Bold))
+        self.price_eur_edit.setFont(QFont("Arial", 16, QFont.Bold))
         self._set_placeholder_bright(self.price_eur_edit)
         self.price_eur_edit.setAlignment(Qt.AlignCenter)
         self.price_eur_edit.setStyleSheet(borderless)
@@ -120,12 +120,12 @@ class LabelWidget(QWidget):
                     self.price_bgn_edit, self.price_eur_edit):
             fld.textChanged.connect(self.changed.emit)
 
-        CurrencyManager(
+        self.currency_manager = CurrencyManager(
             bgn_edit=self.price_bgn_edit,
             eur_edit=self.price_eur_edit,
             rate=1.95583,
             convert_on="keystroke"
-        )
+)
 
     def _set_placeholder_bright(self, w):
         pal = w.palette()
@@ -201,8 +201,19 @@ class LabelWidget(QWidget):
 
     def set_name(self, v): self.name_edit.setText(v)
     def set_type(self, v): self.subtype_edit.setText(v)
-    def set_price(self, v): self.price_bgn_edit.setText(v)
-    def set_price_eur(self, v): self.price_eur_edit.setText(v)
+
+    def set_price(self, v):
+        v = str(v).strip()
+        if v and not v.endswith(" лв."):
+            v = v + " лв."
+        self.price_bgn_edit.setText(v)
+
+    def set_price_eur(self, v):
+        v = str(v).strip()
+        if v and not v.startswith("€"):
+            v = "€" + v
+        self.price_eur_edit.setText(v)
+
     def set_unit_eur_text(self, v):
         v = (v or "").strip()
         self.unit_eur_label.setText(self._format_unit(v))
