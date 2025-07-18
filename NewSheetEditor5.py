@@ -3,12 +3,18 @@ import os
 import json
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy, QPushButton
+    QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy, QPushButton, QComboBox
 )
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPainterPath
 from PyQt5.QtCore import Qt
 
-MM_TO_PX = 72 / 25.4  # for on-screen preview only
+MM_TO_PX = 72 / 25.4  # for preview only
+
+PAPER_SIZES = {
+    "A4 International (210×297 мм)": (210.0, 297.0),
+}
+
+PREVIEW_PAD = 38  # px margin so nothing is ever cropped
 
 def appdata_path():
     from pathlib import Path
@@ -33,10 +39,11 @@ def load_sheet_settings():
         return None
 
 class SheetPreview(QWidget):
-    def __init__(self, params, toggles, *args, **kwargs):
+    def __init__(self, params, toggles, get_paper_size, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.params = params
         self.toggles = toggles
+        self.get_paper_size = get_paper_size
         self.setMinimumSize(800, 600)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._print_mode = False
@@ -44,26 +51,106 @@ class SheetPreview(QWidget):
     def paintEvent(self, event):
         p = self.params
         t = self.toggles
-
+        paper_w_mm, paper_h_mm = self.get_paper_size()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
         w = self.width()
         h = self.height()
 
-        # Physical page/printable area
-        page_w_mm = p['page_w']
-        page_h_mm = p['page_h']
+        # Always leave margin (PREVIEW_PAD) so nothing is cropped
+        scale = min((w - 2*PREVIEW_PAD) / (paper_w_mm * MM_TO_PX),
+                    (h - 2*PREVIEW_PAD) / (paper_h_mm * MM_TO_PX))
+        offset_x = (w - paper_w_mm * MM_TO_PX * scale) / 2
+        offset_y = (h - paper_h_mm * MM_TO_PX * scale) / 2
+
+        def mm_to_px(x_mm, y_mm):
+            return (
+                offset_x + x_mm * MM_TO_PX * scale,
+                offset_y + y_mm * MM_TO_PX * scale,
+            )
+
+        # 1. Draw gray background for whole paper area (ground truth, not affected by margins)
+        page_x, page_y = mm_to_px(0, 0)
+        page_w = paper_w_mm * MM_TO_PX * scale
+        page_h = paper_h_mm * MM_TO_PX * scale
+        if t['gray_area']:
+            painter.fillRect(int(page_x), int(page_y), int(page_w), int(page_h), QColor("#dddddd"))
+        else:
+            painter.fillRect(int(page_x), int(page_y), int(page_w), int(page_h), Qt.white)
+
+        # 2. Draw A4 border (always, black line)
+        painter.setPen(QPen(QColor("#000"), 2))
+        painter.drawRect(int(page_x), int(page_y), int(page_w), int(page_h))
+
+        # 3. Decorative ruler and paper labels, always inside border
+        if t['show_ruler']:
+            ruler_offset = 15
+            painter.setPen(QPen(QColor("#999"), 2))
+            # Top edge
+            for mm in range(0, int(paper_w_mm)+1):
+                x = page_x + mm * MM_TO_PX * scale
+                if mm % 10 == 0:
+                    painter.drawLine(int(x), int(page_y - ruler_offset), int(x), int(page_y))
+                elif mm % 5 == 0:
+                    painter.drawLine(int(x), int(page_y - ruler_offset//2), int(x), int(page_y))
+                else:
+                    painter.drawLine(int(x), int(page_y - ruler_offset//3), int(x), int(page_y))
+            # Left edge
+            for mm in range(0, int(paper_h_mm)+1):
+                y = page_y + mm * MM_TO_PX * scale
+                if mm % 10 == 0:
+                    painter.drawLine(int(page_x - ruler_offset), int(y), int(page_x), int(y))
+                elif mm % 5 == 0:
+                    painter.drawLine(int(page_x - ruler_offset//2), int(y), int(page_x), int(y))
+                else:
+                    painter.drawLine(int(page_x - ruler_offset//3), int(y), int(page_x), int(y))
+            # Right edge
+            for mm in range(0, int(paper_h_mm)+1):
+                y = page_y + mm * MM_TO_PX * scale
+                if mm % 10 == 0:
+                    painter.drawLine(int(page_x + page_w), int(y), int(page_x + page_w + ruler_offset), int(y))
+            # Bottom edge
+            for mm in range(0, int(paper_w_mm)+1):
+                x = page_x + mm * MM_TO_PX * scale
+                if mm % 10 == 0:
+                    painter.drawLine(int(x), int(page_y + page_h), int(x), int(page_y + page_h + ruler_offset))
+
+            # Labels, always visible and inside page border
+            font = QFont("Arial", 20, QFont.Bold)
+            painter.setFont(font)
+            painter.setPen(QPen(QColor("#222"), 1))
+            painter.drawText(int(page_x + 8), int(page_y + 30), "A4")
+            font2 = QFont("Arial", 13, QFont.Normal)
+            painter.setFont(font2)
+            # Bottom center (210mm)
+            painter.drawText(int(page_x + page_w/2 - 30), int(page_y + page_h + ruler_offset + 18), "210mm")
+            # Right center (297mm), rotated, but shifted out further to the right
+            painter.save()
+            painter.translate(int(page_x + page_w + ruler_offset + 30), int(page_y + page_h/2 + 30))
+            painter.rotate(-90)
+            painter.drawText(0, 0, "297mm")
+            painter.restore()
+
+        # 4. Dashed HW margin rectangle (the only thing affected by margin settings)
         hw_left = p['hw_left']
         hw_top = p['hw_top']
         hw_right = p['hw_right']
         hw_bottom = p['hw_bottom']
-        usable_x_mm = hw_left
-        usable_y_mm = hw_top
-        usable_w_mm = page_w_mm - hw_left - hw_right
-        usable_h_mm = page_h_mm - hw_top - hw_bottom
+        # HW margin (dashed) always measured from paper border
+        printable_x = hw_left
+        printable_y = hw_top
+        printable_w = paper_w_mm - hw_left - hw_right
+        printable_h = paper_h_mm - hw_top - hw_bottom
+        px, py = mm_to_px(printable_x, printable_y)
+        pw = printable_w * MM_TO_PX * scale
+        ph = printable_h * MM_TO_PX * scale
+        pen = QPen(QColor("#444"), 2, Qt.DashLine)
+        if t['show_hw_margin']:
+            painter.setPen(pen)
+            painter.drawRect(int(px), int(py), int(pw), int(ph))
 
-        # Label grid (relative to printable area)
+        # 5. Label grid and calibration squares INSIDE dashed rectangle (not double-offset)
         sheet_left = p['sheet_left']
         sheet_top = p['sheet_top']
         label_w = p['label_w']
@@ -74,80 +161,19 @@ class SheetPreview(QWidget):
         cols = p['cols']
         corner_radius = 2.5 if t['rounded'] else 0  # mm
 
-        # Calibration square
-        cal_square = t.get('cal_square', False)
-        cal_square_size = 10.0  # mm
+        # -- This is the CRUCIAL FIX:
+        # The label grid starts AT the dashed rectangle (HW margin),
+        # PLUS sticker sheet margin. If sticker margin == 0, grid is flush.
+        labelgrid_x = hw_left + sheet_left
+        labelgrid_y = hw_top + sheet_top
 
-        # Total label area (for grid)
-        total_label_w = cols * label_w + (cols - 1) * col_gap
-        total_label_h = rows * label_h + (rows - 1) * row_gap
-        draw_x_mm = usable_x_mm + sheet_left
-        draw_y_mm = usable_y_mm + sheet_top
-
-        # Fit usable (printable) area to widget, keep aspect (no offset for rulers)
-        scale = min((w-40) / (usable_w_mm * MM_TO_PX), (h-40) / (usable_h_mm * MM_TO_PX))
-        # The drawing area is always anchored to the top-left of the printable area
-        offset_x = (w - usable_w_mm * MM_TO_PX * scale) / 2
-        offset_y = (h - usable_h_mm * MM_TO_PX * scale) / 2
-
-        def mm_to_px(x_mm, y_mm):
-            return (
-                offset_x + (x_mm - usable_x_mm) * MM_TO_PX * scale,
-                offset_y + (y_mm - usable_y_mm) * MM_TO_PX * scale,
-            )
-
-        # Draw gray base or white background
-        x0, y0 = mm_to_px(usable_x_mm, usable_y_mm)
-        w_px = usable_w_mm * MM_TO_PX * scale
-        h_px = usable_h_mm * MM_TO_PX * scale
-        if t['gray_base'] and (not self._print_mode or (self._print_mode and t['gray_base'])):
-            painter.fillRect(int(x0), int(y0), int(w_px), int(h_px), QColor("#dddddd"))
-        else:
-            painter.fillRect(int(x0), int(y0), int(w_px), int(h_px), Qt.white)
-
-        # Sheet border (gray/dashed)
-        if t['sheet_border']:
-            pen = QPen(QColor("#888888"), 2)
-            if not t['gray_base']:
-                pen.setStyle(Qt.DashLine)
-            painter.setPen(pen)
-            painter.drawRect(int(x0), int(y0), int(w_px), int(h_px))
-
-        # RULER: Overlay only, does NOT offset or push grid
-        if t['ruler']:
-            painter.setPen(QPen(QColor("#444"), 2))
-            # Top ruler: Draw at very top of gray area, overlays into the grid if needed
-            for mm in range(0, int(usable_w_mm)+1):
-                x = x0 + mm * MM_TO_PX * scale
-                y0r = y0 - 18
-                y1r = y0
-                if mm % 10 == 0:
-                    painter.drawLine(int(x), int(y0r), int(x), int(y1r))
-                elif mm % 5 == 0:
-                    painter.drawLine(int(x), int(y0r+7), int(x), int(y1r))
-                else:
-                    painter.drawLine(int(x), int(y0r+13), int(x), int(y1r))
-            # Left ruler: Draw at very left of gray area
-            for mm in range(0, int(usable_h_mm)+1):
-                y = y0 + mm * MM_TO_PX * scale
-                x0r = x0 - 18
-                x1r = x0
-                if mm % 10 == 0:
-                    painter.drawLine(int(x0r), int(y), int(x1r), int(y))
-                elif mm % 5 == 0:
-                    painter.drawLine(int(x0r+7), int(y), int(x1r), int(y))
-                else:
-                    painter.drawLine(int(x0r+13), int(y), int(x1r), int(y))
-
-        # LABEL GRID & CALIBRATION SQUARES
         for row in range(rows):
             for col in range(cols):
-                x_mm = draw_x_mm + col * (label_w + col_gap)
-                y_mm = draw_y_mm + row * (label_h + row_gap)
+                x_mm = labelgrid_x + col * (label_w + col_gap)
+                y_mm = labelgrid_y + row * (label_h + row_gap)
                 x, y = mm_to_px(x_mm, y_mm)
                 w_label_px = label_w * MM_TO_PX * scale
                 h_label_px = label_h * MM_TO_PX * scale
-
                 if t['grid']:
                     painter.setPen(QPen(QColor("#333333"), 2))
                     if corner_radius > 0:
@@ -157,10 +183,10 @@ class SheetPreview(QWidget):
                         painter.drawPath(path)
                     else:
                         painter.drawRect(int(x), int(y), int(w_label_px), int(h_label_px))
-
-                # Calibration square in center of label, with crosshair and readable labels
-                if cal_square:
-                    sq_size_px = cal_square_size * MM_TO_PX * scale
+                # Calibration square in label center
+                if t['cal_square']:
+                    sq_size_mm = 10.0
+                    sq_size_px = sq_size_mm * MM_TO_PX * scale
                     cx = x + w_label_px / 2
                     cy = y + h_label_px / 2
                     left = cx - sq_size_px / 2
@@ -171,42 +197,10 @@ class SheetPreview(QWidget):
                     crosshair_len = sq_size_px * 0.7
                     painter.drawLine(int(cx - crosshair_len/2), int(cy), int(cx + crosshair_len/2), int(cy))
                     painter.drawLine(int(cx), int(cy - crosshair_len/2), int(cx), int(cy + crosshair_len/2))
-                    # Labels: 10 mm top and right, larger readable font
+                    # Only one horizontal label, above the square
                     font = QFont("Arial", 12, QFont.Normal)
                     painter.setFont(font)
-                    # Top label (above the square, horizontally centered)
                     painter.drawText(int(cx - 22), int(top - 5), "10 mm")
-                    # Right label (to the right of the square, vertically centered)
-                    painter.save()
-                    painter.translate(int(left + sq_size_px + 2), int(cy + 4))
-                    painter.rotate(-90)
-                    painter.drawText(0, 0, "10 mm")
-                    painter.restore()
-
-        # CROSSHAIRS
-        if t['crosshairs']:
-            ch_len = 14 * scale
-            pen = QPen(QColor("#bd2323"), 1.6)
-            pen.setCapStyle(Qt.RoundCap)
-            painter.setPen(pen)
-            # Calculate gap centers
-            row_centers_mm = []
-            for r in range(rows - 1):
-                y1 = draw_y_mm + (r + 1) * label_h + r * row_gap
-                y2 = y1 + row_gap
-                center_y = y1 + (y2 - y1) / 2 if row_gap > 0 else y1
-                row_centers_mm.append(center_y)
-            col_centers_mm = []
-            for c in range(cols - 1):
-                x1 = draw_x_mm + (c + 1) * label_w + c * col_gap
-                x2 = x1 + col_gap
-                center_x = x1 + (x2 - x1) / 2 if col_gap > 0 else x1
-                col_centers_mm.append(center_x)
-            for y_mm in row_centers_mm:
-                for x_mm in col_centers_mm:
-                    x, y = mm_to_px(x_mm, y_mm)
-                    painter.drawLine(int(x - ch_len/2), int(y), int(x + ch_len/2), int(y))
-                    painter.drawLine(int(x), int(y - ch_len/2), int(x), int(y + ch_len/2))
 
     def set_print_mode(self, on):
         self._print_mode = on
@@ -217,25 +211,25 @@ class SheetEditor(QWidget):
         self.setWindowTitle("Редактор на лист – Калибриране")
         self.params = self.default_params()
         self.toggles = {
-            'gray_base': False,
-            'sheet_border': True,
+            'show_ruler': True,
+            'gray_area': False,
+            'show_hw_margin': True,
             'grid': True,
-            'crosshairs': True,
-            'ruler': True,
             'rounded': False,
-            'cal_square': False
+            'cal_square': False,
         }
+        self.paper_size = "A4 International (210×297 мм)"
         loaded = load_sheet_settings()
         if loaded:
             self.params.update(loaded.get("params", {}))
             self.toggles.update(loaded.get("toggles", {}))
+            self.paper_size = loaded.get("paper_size", self.paper_size)
         self.init_ui()
         self.update_helper_labels()
 
     def default_params(self):
         return {
             'hw_left': 8.0, 'hw_top': 8.0, 'hw_right': 8.0, 'hw_bottom': 8.0,
-            'page_w': 210.0, 'page_h': 297.0,
             'sheet_left': 0.0, 'sheet_top': 0.0,
             'label_w': 63.5, 'label_h': 38.1,
             'col_gap': 2.0, 'row_gap': 0.0,
@@ -246,6 +240,7 @@ class SheetEditor(QWidget):
         save_sheet_settings({
             "params": self.params,
             "toggles": self.toggles,
+            "paper_size": self.paper_size,
         })
 
     def update_helper_labels(self):
@@ -254,9 +249,23 @@ class SheetEditor(QWidget):
         self.lbl_left_offset.setText(f"Общо разстояние от ляв ръб до етикет: {offset_left:.1f} мм")
         self.lbl_top_offset.setText(f"Общо разстояние от горен ръб до етикет: {offset_top:.1f} мм")
 
+    def get_paper_size(self):
+        return PAPER_SIZES[self.paper_size]
+
     def init_ui(self):
         main_h = QHBoxLayout(self)
         controls = QVBoxLayout()
+
+        # Paper size selection (future-proof)
+        l_paper = QHBoxLayout()
+        l_paper.addWidget(QLabel("Размер на листа:"))
+        self.combo_paper = QComboBox()
+        for name in PAPER_SIZES.keys():
+            self.combo_paper.addItem(name)
+        self.combo_paper.setCurrentText(self.paper_size)
+        self.combo_paper.currentTextChanged.connect(self.paper_changed)
+        l_paper.addWidget(self.combo_paper)
+        controls.addLayout(l_paper)
 
         # Printer HW Margins group
         gb_hw = QGroupBox("Полеви ограничения на принтера (mm)")
@@ -334,16 +343,17 @@ class SheetEditor(QWidget):
         # Visual Helpers group (+ calibration square here)
         gb_vis = QGroupBox("Визуални помощници")
         l_vis = QVBoxLayout(gb_vis)
-        self.chk_gray = QCheckBox("Покажи сива основа"); self.chk_gray.setChecked(self.toggles['gray_base'])
-        self.chk_border = QCheckBox("Покажи рамка на листа"); self.chk_border.setChecked(self.toggles['sheet_border'])
+        self.chk_ruler = QCheckBox("Покажи линийка на екрана"); self.chk_ruler.setChecked(self.toggles['show_ruler'])
+        self.chk_gray = QCheckBox("Покажи сива основа"); self.chk_gray.setChecked(self.toggles['gray_area'])
+        self.chk_hwmargin = QCheckBox("Покажи рамка на принтера"); self.chk_hwmargin.setChecked(self.toggles['show_hw_margin'])
         self.chk_grid = QCheckBox("Показвай мрежата"); self.chk_grid.setChecked(self.toggles['grid'])
-        self.chk_ch = QCheckBox("Показвай кръстчета"); self.chk_ch.setChecked(self.toggles['crosshairs'])
-        self.chk_ruler = QCheckBox("Показвай линийка"); self.chk_ruler.setChecked(self.toggles['ruler'])
         self.chk_cal_square = QCheckBox("Покажи калибрационен квадрат"); self.chk_cal_square.setChecked(self.toggles['cal_square'])
         for chk, k in [
-            (self.chk_gray, 'gray_base'), (self.chk_border, 'sheet_border'),
-            (self.chk_grid, 'grid'), (self.chk_ch, 'crosshairs'), (self.chk_ruler, 'ruler'),
-            (self.chk_cal_square, 'cal_square')
+            (self.chk_ruler, 'show_ruler'),
+            (self.chk_gray, 'gray_area'),
+            (self.chk_hwmargin, 'show_hw_margin'),
+            (self.chk_grid, 'grid'),
+            (self.chk_cal_square, 'cal_square'),
         ]:
             chk.stateChanged.connect(lambda _, k=k: self.toggle_overlay(k))
             l_vis.addWidget(chk)
@@ -357,7 +367,7 @@ class SheetEditor(QWidget):
         controls.addStretch(1)
 
         main_h.addLayout(controls, 0)
-        self.preview = SheetPreview(self.params, self.toggles)
+        self.preview = SheetPreview(self.params, self.toggles, self.get_paper_size)
         main_h.addWidget(self.preview, 1)
 
     def update_param(self, key, value):
@@ -368,16 +378,20 @@ class SheetEditor(QWidget):
 
     def toggle_overlay(self, key):
         toggle_names = {
-            "gray_base": "chk_gray",
-            "sheet_border": "chk_border",
+            "show_ruler": "chk_ruler",
+            "gray_area": "chk_gray",
+            "show_hw_margin": "chk_hwmargin",
             "grid": "chk_grid",
-            "crosshairs": "chk_ch",
-            "ruler": "chk_ruler",
             "rounded": "chk_rounded",
-            "cal_square": "chk_cal_square"
+            "cal_square": "chk_cal_square",
         }
         widget = getattr(self, toggle_names[key])
         self.toggles[key] = widget.isChecked()
+        self.preview.update()
+        self.save_settings()
+
+    def paper_changed(self, val):
+        self.paper_size = val
         self.preview.update()
         self.save_settings()
 
@@ -403,3 +417,4 @@ if __name__ == "__main__":
     win.resize(1200, 850)
     win.show()
     sys.exit(app.exec_())
+
