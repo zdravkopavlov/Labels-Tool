@@ -4,7 +4,7 @@ import json
 import printer
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy, QPushButton
+    QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy, QPushButton, QComboBox
 )
 from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPainterPath
 from PyQt5.QtCore import Qt
@@ -41,7 +41,7 @@ class SheetPreview(QWidget):
         self.setMinimumSize(800, 600)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.calibration_mode = False
-        self.rendering_for_print = False # Flag to indicate if rendering is for print
+        self.rendering_for_print = False
 
     def set_calibration_mode(self, on):
         self.calibration_mode = on
@@ -62,10 +62,6 @@ class SheetPreview(QWidget):
         hw_top = p['hw_top']
         hw_right = p['hw_right']
         hw_bottom = p['hw_bottom']
-        usable_x_mm = hw_left
-        usable_y_mm = hw_top
-        usable_w_mm = page_w_mm - hw_left - hw_right
-        usable_h_mm = page_h_mm - hw_top - hw_bottom
 
         sheet_left = p['sheet_left']
         sheet_top = p['sheet_top']
@@ -80,17 +76,17 @@ class SheetPreview(QWidget):
         cal_square = t.get('cal_square', False)
         cal_square_size = 10.0
 
-        total_label_w = cols * label_w + (cols - 1) * col_gap
-        total_label_h = rows * label_h + (rows - 1) * row_gap
-        draw_x_mm = usable_x_mm + sheet_left
-        draw_y_mm = usable_y_mm + sheet_top
-
-        # --- CRITICAL: Always center preview on screen, but use offset=0 when printing ---
-        scale = min((w-40) / (page_w_mm * MM_TO_PX), (h-40) / (page_h_mm * MM_TO_PX))
+        # --- Scaling ---
         if getattr(self, 'rendering_for_print', False):
+            scale = w / (page_w_mm * MM_TO_PX)
             offset_x = 0
             offset_y = 0
         else:
+            margin_px = 48  # you can tweak this value!
+            scale = min(
+                (w - 2*margin_px) / (page_w_mm * MM_TO_PX),
+                (h - 2*margin_px) / (page_h_mm * MM_TO_PX)
+            )
             offset_x = (w - page_w_mm * MM_TO_PX * scale) / 2
             offset_y = (h - page_h_mm * MM_TO_PX * scale) / 2
 
@@ -100,7 +96,7 @@ class SheetPreview(QWidget):
                 offset_y + y_mm * MM_TO_PX * scale,
             )
 
-        # CALIBRATION PRINT (solid gray)
+        # --- Calibration print (solid gray) ---
         if self.calibration_mode:
             page_x, page_y = mm_to_px(0, 0)
             page_w = page_w_mm * MM_TO_PX * scale
@@ -108,7 +104,54 @@ class SheetPreview(QWidget):
             painter.fillRect(int(page_x), int(page_y), int(page_w), int(page_h), QColor("#dddddd"))
             return
 
-        # --- Draw A4 background and border (should now align perfectly when printing) ---
+        # --- Draw ruler, A4 label, and dimensions OUTSIDE page border ---
+        if t.get('ruler', True):
+            ruler_font = QFont("Arial", 20, QFont.Bold)
+            painter.setFont(ruler_font)
+            # A4 label, top left, outside page border
+            page_x, page_y = mm_to_px(0, 0)
+            painter.setPen(QPen(QColor("#888"), 2))
+            a4_label = "A4"
+            painter.drawText(int(page_x) - 34, int(page_y) - 14, a4_label)
+            # Draw 210mm at bottom center, 297mm at right center (outside page)
+            dim_font = QFont("Arial", 11)
+            painter.setFont(dim_font)
+            page_x2, page_y2 = mm_to_px(page_w_mm, 0)
+            # bottom (horizontal dimension)
+            painter.drawText(
+                int(page_x + (page_x2 - page_x) / 2) - 30,
+                int(page_y + page_h_mm * MM_TO_PX * scale) + 28,
+                "210mm"
+            )
+            # right (vertical dimension)
+            painter.save()
+            painter.translate(int(page_x2) + 12, int(page_y + (page_h_mm * MM_TO_PX * scale) / 2) + 30)
+            painter.rotate(-90)
+            painter.drawText(0, 10, "297mm")
+            painter.restore()
+
+            # Tick marks (just outside the main rectangle)
+            painter.setPen(QPen(QColor("#aaa"), 1))
+            # Top edge
+            for mm in range(0, int(page_w_mm) + 1):
+                x = page_x + mm * MM_TO_PX * scale
+                if mm % 10 == 0:
+                    painter.drawLine(int(x), int(page_y) - 18, int(x), int(page_y))
+                elif mm % 5 == 0:
+                    painter.drawLine(int(x), int(page_y) - 11, int(x), int(page_y))
+                else:
+                    painter.drawLine(int(x), int(page_y) - 5, int(x), int(page_y))
+            # Left edge
+            for mm in range(0, int(page_h_mm) + 1):
+                y = page_y + mm * MM_TO_PX * scale
+                if mm % 10 == 0:
+                    painter.drawLine(int(page_x) - 18, int(y), int(page_x), int(y))
+                elif mm % 5 == 0:
+                    painter.drawLine(int(page_x) - 11, int(y), int(page_x), int(y))
+                else:
+                    painter.drawLine(int(page_x) - 5, int(y), int(page_x), int(y))
+
+        # --- A4 page border ---
         page_x, page_y = mm_to_px(0, 0)
         page_w = page_w_mm * MM_TO_PX * scale
         page_h = page_h_mm * MM_TO_PX * scale
@@ -116,7 +159,7 @@ class SheetPreview(QWidget):
         painter.setPen(QPen(QColor("#888888"), 2, Qt.DashLine))
         painter.drawRect(int(page_x), int(page_y), int(page_w), int(page_h))
 
-        # HW margin rectangle (toggleable!)
+        # --- HW margin rectangle (toggleable visual) ---
         margin_x, margin_y = mm_to_px(hw_left, hw_top)
         margin_w = (page_w_mm - hw_left - hw_right) * MM_TO_PX * scale
         margin_h = (page_h_mm - hw_top - hw_bottom) * MM_TO_PX * scale
@@ -124,31 +167,14 @@ class SheetPreview(QWidget):
             painter.setPen(QPen(QColor("#228"), 2, Qt.DashLine))
             painter.drawRect(int(margin_x), int(margin_y), int(margin_w), int(margin_h))
 
-        # Ruler
-        if t.get('ruler', True):
-            painter.setPen(QPen(QColor("#444"), 2))
-            for mm in range(0, int(page_w_mm)+1):
-                x = page_x + mm * MM_TO_PX * scale
-                y0r = page_y - 18
-                y1r = page_y
-                if mm % 10 == 0:
-                    painter.drawLine(int(x), int(y0r), int(x), int(y1r))
-                elif mm % 5 == 0:
-                    painter.drawLine(int(x), int(y0r+7), int(x), int(y1r))
-                else:
-                    painter.drawLine(int(x), int(y0r+13), int(x), int(y1r))
-            for mm in range(0, int(page_h_mm)+1):
-                y = page_y + mm * MM_TO_PX * scale
-                x0r = page_x - 18
-                x1r = page_x
-                if mm % 10 == 0:
-                    painter.drawLine(int(x0r), int(y), int(x1r), int(y))
-                elif mm % 5 == 0:
-                    painter.drawLine(int(x0r+7), int(y), int(x1r), int(y))
-                else:
-                    painter.drawLine(int(x0r+13), int(y), int(x1r), int(y))
+        # --- Label grid and helpers ---
+        if getattr(self, 'rendering_for_print', False):
+            draw_x_mm = sheet_left
+            draw_y_mm = sheet_top
+        else:
+            draw_x_mm = hw_left + sheet_left
+            draw_y_mm = hw_top + sheet_top
 
-        # Draw label grid and calibration squares
         for row in range(rows):
             for col in range(cols):
                 x_mm = draw_x_mm + col * (label_w + col_gap)
@@ -178,11 +204,16 @@ class SheetPreview(QWidget):
                     crosshair_len = sq_size_px * 0.7
                     painter.drawLine(int(cx - crosshair_len/2), int(cy), int(cx + crosshair_len/2), int(cy))
                     painter.drawLine(int(cx), int(cy - crosshair_len/2), int(cx), int(cy + crosshair_len/2))
-                    font = QFont("Arial", 12, QFont.Normal)
+                    # Make the "10 mm" text scale with print/preview
+                    if getattr(self, 'rendering_for_print', False):
+                        font_size_pt = max(int(22 * (1/scale)), 12)
+                    else:
+                        font_size_pt = 12
+                    font = QFont("Arial", font_size_pt, QFont.Normal)
                     painter.setFont(font)
-                    painter.drawText(int(cx - 22), int(top - 5), "10 mm")
+                    painter.drawText(int(cx - sq_size_px / 2), int(top - 8), "10 mm")
 
-        # CROSSHAIRS (trusted, only this block added!)
+        # --- Crosshairs ---
         if t.get('crosshairs', True):
             ch_len = 14 * scale
             pen = QPen(QColor("#bd2323"), 1.6)
@@ -190,7 +221,7 @@ class SheetPreview(QWidget):
             painter.setPen(pen)
             row_centers_mm = []
             for r in range(rows - 1):
-                y1 = draw_x_mm + (r + 1) * label_h + r * row_gap
+                y1 = draw_y_mm + (r + 1) * label_h + r * row_gap
                 y2 = y1 + row_gap
                 center_y = y1 + (y2 - y1) / 2 if row_gap > 0 else y1
                 row_centers_mm.append(center_y)
@@ -205,11 +236,10 @@ class SheetPreview(QWidget):
                     x, y = mm_to_px(x_mm, y_mm)
                     painter.drawLine(int(x - ch_len/2), int(y), int(x + ch_len/2), int(y))
                     painter.drawLine(int(x), int(y - ch_len/2), int(x), int(y + ch_len/2))
-
 class CalibrationTab(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Калибрация на печат и етикети")
+        self.setWindowTitle("Редактор на лист – Калибриране")
         self.params = self.default_params()
         self.toggles = {
             'grid': True,
@@ -228,11 +258,11 @@ class CalibrationTab(QWidget):
 
     def default_params(self):
         return {
-            'hw_left': 8.0, 'hw_top': 8.0, 'hw_right': 8.0, 'hw_bottom': 8.0,
+            'hw_left': 5.0, 'hw_top': 5.0, 'hw_right': 5.0, 'hw_bottom': 5.0,
             'page_w': 210.0, 'page_h': 297.0,
-            'sheet_left': 0.0, 'sheet_top': 0.0,
+            'sheet_left': 1.0, 'sheet_top': 10.0,
             'label_w': 63.5, 'label_h': 38.1,
-            'col_gap': 2.0, 'row_gap': 0.0,
+            'col_gap': 3.4, 'row_gap': 0.0,
             'rows': 7, 'cols': 3,
         }
 
@@ -252,104 +282,152 @@ class CalibrationTab(QWidget):
         main_h = QHBoxLayout(self)
         controls = QVBoxLayout()
 
-        self.btn_calib_print = QPushButton("Калибриращ печат (сив фон)")
-        self.btn_calib_print.clicked.connect(self.print_calibration)
-        controls.addWidget(self.btn_calib_print)
-        self.btn_print = QPushButton("Печатай")
-        self.btn_print.clicked.connect(self.print_sheet)
-        controls.addWidget(self.btn_print)
+        # 1. Paper size dropdown (future-proof, single option for now)
+        self.cb_page_size = QComboBox()
+        self.cb_page_size.addItem("A4 International (210x297mm)")
+        self.cb_page_size.setCurrentIndex(0)
+        self.cb_page_size.setMaximumWidth(260)
+        controls.addWidget(self.cb_page_size)
 
+        # Printer margin group
         gb_hw = QGroupBox("Полеви ограничения на принтера (mm)")
-        l_hw = QHBoxLayout(gb_hw)
-        self.sp_hw_left = QDoubleSpinBox(self); self.sp_hw_left.setRange(0, 50); self.sp_hw_left.setDecimals(2); self.sp_hw_left.setValue(self.params['hw_left'])
-        self.sp_hw_top = QDoubleSpinBox(self); self.sp_hw_top.setRange(0, 50); self.sp_hw_top.setDecimals(2); self.sp_hw_top.setValue(self.params['hw_top'])
-        self.sp_hw_right = QDoubleSpinBox(self); self.sp_hw_right.setRange(0, 50); self.sp_hw_right.setDecimals(2); self.sp_hw_right.setValue(self.params['hw_right'])
-        self.sp_hw_bottom = QDoubleSpinBox(self); self.sp_hw_bottom.setRange(0, 50); self.sp_hw_bottom.setDecimals(2); self.sp_hw_bottom.setValue(self.params['hw_bottom'])
-        l_hw.addWidget(QLabel("Ляво")); l_hw.addWidget(self.sp_hw_left)
-        l_hw.addWidget(QLabel("Горе")); l_hw.addWidget(self.sp_hw_top)
-        l_hw.addWidget(QLabel("Дясно")); l_hw.addWidget(self.sp_hw_right)
-        l_hw.addWidget(QLabel("Долу")); l_hw.addWidget(self.sp_hw_bottom)
+        l_hw = QHBoxLayout()
+        l_hw.setSpacing(16)
+        for label, key in [("Ляво:", 'hw_left'), ("Горе:", 'hw_top'), ("Дясно:", 'hw_right'), ("Долу:", 'hw_bottom')]:
+            pair_layout = QHBoxLayout()
+            pair_layout.setSpacing(4)
+            lbl = QLabel(label)
+            lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 50)
+            spin.setDecimals(2)
+            spin.setValue(self.params[key])
+            spin.setMaximumWidth(70)
+            spin.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            setattr(self, f"sp_{key}", spin)
+            pair_layout.addWidget(lbl)
+            pair_layout.addWidget(spin)
+            l_hw.addLayout(pair_layout)
+            spin.valueChanged.connect(lambda val, k=key: self.update_param(k, float(val)))
+        gb_hw.setLayout(l_hw)
         controls.addWidget(gb_hw)
-        for box, key in [
-            (self.sp_hw_left, 'hw_left'), (self.sp_hw_top, 'hw_top'),
-            (self.sp_hw_right, 'hw_right'), (self.sp_hw_bottom, 'hw_bottom')
-        ]:
-            box.valueChanged.connect(lambda val, k=key: self.update_param(k, float(val)))
 
+        # Sticker sheet margin group
+        gb_sheet = QGroupBox("Полеви ограничения на стикерния лист (mm)")
+        l_sheet = QHBoxLayout()
+        l_sheet.setSpacing(16)
+        for label, key in [("Ляво:", 'sheet_left'), ("Горе:", 'sheet_top')]:
+            pair_layout = QHBoxLayout()
+            pair_layout.setSpacing(4)
+            lbl = QLabel(label)
+            lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            spin = QDoubleSpinBox()
+            spin.setRange(0, 100)
+            spin.setDecimals(2)
+            spin.setValue(self.params[key])
+            spin.setMaximumWidth(70)
+            spin.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            setattr(self, f"sp_{key}", spin)
+            pair_layout.addWidget(lbl)
+            pair_layout.addWidget(spin)
+            l_sheet.addLayout(pair_layout)
+            spin.valueChanged.connect(lambda val, k=key: self.update_param(k, float(val)))
+        gb_sheet.setLayout(l_sheet)
+        controls.addWidget(gb_sheet)        
+
+
+        # 4. Offset reporting labels
         self.lbl_left_offset = QLabel()
         self.lbl_top_offset = QLabel()
         controls.addWidget(self.lbl_left_offset)
         controls.addWidget(self.lbl_top_offset)
 
-        gb_sheet = QGroupBox("Полеви ограничения на стикерния лист (mm)")
-        l_sheet = QHBoxLayout(gb_sheet)
-        self.sp_sheet_left = QDoubleSpinBox(self); self.sp_sheet_left.setRange(0, 100); self.sp_sheet_left.setDecimals(2); self.sp_sheet_left.setValue(self.params['sheet_left'])
-        self.sp_sheet_top = QDoubleSpinBox(self); self.sp_sheet_top.setRange(0, 100); self.sp_sheet_top.setDecimals(2); self.sp_sheet_top.setValue(self.params['sheet_top'])
-        l_sheet.addWidget(QLabel("Ляво")); l_sheet.addWidget(self.sp_sheet_left)
-        l_sheet.addWidget(QLabel("Горе")); l_sheet.addWidget(self.sp_sheet_top)
-        controls.addWidget(gb_sheet)
-        for box, key in [
-            (self.sp_sheet_left, 'sheet_left'), (self.sp_sheet_top, 'sheet_top')
-        ]:
-            box.valueChanged.connect(lambda val, k=key: self.update_param(k, float(val)))
-
-        gb_labels = QGroupBox("Размери и разстояния на етикетите (mm)")
-        l_labels = QHBoxLayout(gb_labels)
-        self.sp_w = QDoubleSpinBox(self); self.sp_w.setRange(1, 200); self.sp_w.setDecimals(2); self.sp_w.setSingleStep(0.1); self.sp_w.setValue(self.params['label_w'])
-        self.sp_h = QDoubleSpinBox(self); self.sp_h.setRange(1, 200); self.sp_h.setDecimals(2); self.sp_h.setSingleStep(0.1); self.sp_h.setValue(self.params['label_h'])
-        self.sp_cgap = QDoubleSpinBox(self); self.sp_cgap.setRange(0, 50); self.sp_cgap.setDecimals(2); self.sp_cgap.setSingleStep(0.1); self.sp_cgap.setValue(self.params['col_gap'])
-        self.sp_rgap = QDoubleSpinBox(self); self.sp_rgap.setRange(0, 50); self.sp_rgap.setDecimals(2); self.sp_rgap.setSingleStep(0.1); self.sp_rgap.setValue(self.params['row_gap'])
-        l_labels.addWidget(QLabel("Широчина")); l_labels.addWidget(self.sp_w)
-        l_labels.addWidget(QLabel("Височина")); l_labels.addWidget(self.sp_h)
-        l_labels.addWidget(QLabel("Хор. разстояние")); l_labels.addWidget(self.sp_cgap)
-        l_labels.addWidget(QLabel("Вер. разстояние")); l_labels.addWidget(self.sp_rgap)
-        controls.addWidget(gb_labels)
-        for box, key in [
-            (self.sp_w, 'label_w'), (self.sp_h, 'label_h'),
-            (self.sp_cgap, 'col_gap'), (self.sp_rgap, 'row_gap')
-        ]:
-            box.valueChanged.connect(lambda val, k=key: self.update_param(k, float(val)))
-
-        l_labels2 = QVBoxLayout()
+        # 5. Label size group ("Размер на етикета")
+        gb_labels = QGroupBox("Размер на етикета (mm)")
+        l_labels = QVBoxLayout(gb_labels)
+        l_row1 = QHBoxLayout()
+        self.sp_w = QDoubleSpinBox(); self.sp_w.setRange(1, 200); self.sp_w.setDecimals(2); self.sp_w.setSingleStep(0.1); self.sp_w.setValue(self.params['label_w']); self.sp_w.setMaximumWidth(80)
+        self.sp_h = QDoubleSpinBox(); self.sp_h.setRange(1, 200); self.sp_h.setDecimals(2); self.sp_h.setSingleStep(0.1); self.sp_h.setValue(self.params['label_h']); self.sp_h.setMaximumWidth(80)
+        l_row1.addWidget(QLabel("Широчина:")); l_row1.addWidget(self.sp_w)
+        l_row1.addWidget(QLabel("Височина:")); l_row1.addWidget(self.sp_h)
+        l_row1.addStretch(1)
+        l_labels.addLayout(l_row1)
         self.chk_rounded = QCheckBox("Заоблени ъгли на етикетите"); self.chk_rounded.setChecked(self.toggles['rounded'])
+        l_labels.addWidget(self.chk_rounded)
+        self.sp_w.valueChanged.connect(lambda val: self.update_param('label_w', float(val)))
+        self.sp_h.valueChanged.connect(lambda val: self.update_param('label_h', float(val)))
         self.chk_rounded.stateChanged.connect(lambda _: self.toggle_overlay('rounded'))
-        l_labels2.addWidget(self.chk_rounded)
-        l_labels.addLayout(l_labels2)
+        controls.addWidget(gb_labels)
 
+        # 6. Rows/cols/gaps group
         gb_rc = QGroupBox("Брой редове и колони")
         l_rc = QHBoxLayout(gb_rc)
-        self.sp_rows = QSpinBox(self); self.sp_rows.setRange(1, 20); self.sp_rows.setValue(self.params['rows'])
-        self.sp_cols = QSpinBox(self); self.sp_cols.setRange(1, 20); self.sp_cols.setValue(self.params['cols'])
-        l_rc.addWidget(QLabel("Редове")); l_rc.addWidget(self.sp_rows)
-        l_rc.addWidget(QLabel("Колони")); l_rc.addWidget(self.sp_cols)
-        controls.addWidget(gb_rc)
+        l_rc.setSpacing(8)
+        self.sp_rows = QSpinBox(); self.sp_rows.setRange(1, 20); self.sp_rows.setValue(self.params['rows']); self.sp_rows.setMaximumWidth(60)
+        self.sp_cols = QSpinBox(); self.sp_cols.setRange(1, 20); self.sp_cols.setValue(self.params['cols']); self.sp_cols.setMaximumWidth(60)
+        self.sp_cgap = QDoubleSpinBox(); self.sp_cgap.setRange(0, 50); self.sp_cgap.setDecimals(2); self.sp_cgap.setSingleStep(0.1); self.sp_cgap.setValue(self.params['col_gap']); self.sp_cgap.setMaximumWidth(70)
+        self.sp_rgap = QDoubleSpinBox(); self.sp_rgap.setRange(0, 50); self.sp_rgap.setDecimals(2); self.sp_rgap.setSingleStep(0.1); self.sp_rgap.setValue(self.params['row_gap']); self.sp_rgap.setMaximumWidth(70)
+        l_rc.addWidget(QLabel("Редове:")); l_rc.addWidget(self.sp_rows)
+        l_rc.addWidget(QLabel("Колони:")); l_rc.addWidget(self.sp_cols)
+        l_rc.addWidget(QLabel("Междина колони:")); l_rc.addWidget(self.sp_cgap)
+        l_rc.addWidget(QLabel("Междина редове:")); l_rc.addWidget(self.sp_rgap)
+        l_rc.addStretch(1)
         self.sp_rows.valueChanged.connect(lambda val: self.update_param('rows', int(val)))
         self.sp_cols.valueChanged.connect(lambda val: self.update_param('cols', int(val)))
+        self.sp_cgap.valueChanged.connect(lambda val: self.update_param('col_gap', float(val)))
+        self.sp_rgap.valueChanged.connect(lambda val: self.update_param('row_gap', float(val)))
+        controls.addWidget(gb_rc)
 
+        # 7. Visual helpers group
         gb_vis = QGroupBox("Визуални помощници")
         l_vis = QVBoxLayout(gb_vis)
         self.chk_ruler = QCheckBox("Покажи линийка на екрана"); self.chk_ruler.setChecked(self.toggles['ruler'])
-        self.chk_grid = QCheckBox("Показвай мрежата"); self.chk_grid.setChecked(self.toggles['grid'])
-        self.chk_cal_square = QCheckBox("Покажи калибрационен квадрат"); self.chk_cal_square.setChecked(self.toggles['cal_square'])
-        self.chk_crosses = QCheckBox("Показвай кръстчета"); self.chk_crosses.setChecked(self.toggles['crosshairs'])
+        #self.chk_gray = QCheckBox("Покажи сива основа")
         self.chk_hw_margin = QCheckBox("Покажи рамка на принтера"); self.chk_hw_margin.setChecked(self.toggles['show_hw_margin'])
-        for chk, k in [
-            (self.chk_ruler, 'ruler'),
-            (self.chk_grid, 'grid'),
-            (self.chk_cal_square, 'cal_square'),
-            (self.chk_crosses, 'crosshairs'),
-            (self.chk_hw_margin, 'show_hw_margin'),
-        ]:
-            chk.stateChanged.connect(lambda _, k=k: self.toggle_overlay(k))
-            l_vis.addWidget(chk)
+        self.chk_grid = QCheckBox("Показвай мрежата"); self.chk_grid.setChecked(self.toggles['grid'])
+        self.chk_crosses = QCheckBox("Показвай кръстчета"); self.chk_crosses.setChecked(self.toggles['crosshairs'])
+        self.chk_cal_square = QCheckBox("Покажи калибрационен квадрат"); self.chk_cal_square.setChecked(self.toggles['cal_square'])
+        # Order here as you wish
+        l_vis.addWidget(self.chk_ruler)
+        #l_vis.addWidget(self.chk_gray)
+        l_vis.addWidget(self.chk_hw_margin)
+        l_vis.addWidget(self.chk_grid)
+        l_vis.addWidget(self.chk_crosses)
+        l_vis.addWidget(self.chk_cal_square)
         controls.addWidget(gb_vis)
-        controls.addSpacing(10)
+
+        # Connect toggles
+        self.chk_ruler.stateChanged.connect(lambda _: self.toggle_overlay('ruler'))
+        self.chk_hw_margin.stateChanged.connect(lambda _: self.toggle_overlay('show_hw_margin'))
+        self.chk_grid.stateChanged.connect(lambda _: self.toggle_overlay('grid'))
+        self.chk_crosses.stateChanged.connect(lambda _: self.toggle_overlay('crosshairs'))
+        self.chk_cal_square.stateChanged.connect(lambda _: self.toggle_overlay('cal_square'))
+        # Note: "Покажи сива основа" does nothing except for preview; no need to connect
+
+        controls.addSpacing(12)
+
+        # 8. Both buttons
+        self.btn_calib_print = QPushButton("Калибриращ печат (сив фон)")
+        self.btn_calib_print.setMaximumHeight(32)
+        self.btn_calib_print.clicked.connect(self.print_calibration)
+        self.btn_print = QPushButton("Печат – Визуални помощници")
+        self.btn_print.setMaximumHeight(32)
+        self.btn_print.clicked.connect(self.print_sheet)
+        btns_h = QHBoxLayout()
+        btns_h.addWidget(self.btn_calib_print)
+        btns_h.addWidget(self.btn_print)
+        controls.addLayout(btns_h)
 
         controls.addStretch(1)
 
         main_h.addLayout(controls, 0)
+
+        # --- Add padding for the preview area ---
+        preview_pad = QVBoxLayout()
+        preview_pad.setContentsMargins(3, 3, 3, 3)  # (left, top, right, bottom) in px.
         self.preview = SheetPreview(self.params, self.toggles)
-        main_h.addWidget(self.preview, 1)
+        preview_pad.addWidget(self.preview)
+        main_h.addLayout(preview_pad, 1)
 
     def update_param(self, key, value):
         self.params[key] = value
@@ -375,7 +453,6 @@ class CalibrationTab(QWidget):
         printer.print_calibration(self.params['page_w'], self.params['page_h'], self)
 
     def print_sheet(self):
-        # Critical: set preview to "rendering_for_print" mode during print, then reset
         self.preview.rendering_for_print = True
         printer.print_sheet(self.preview, self)
         self.preview.rendering_for_print = False

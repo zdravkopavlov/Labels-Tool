@@ -4,13 +4,6 @@ from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt5.QtGui import QPainter, QColor
 
 def print_calibration(page_w_mm, page_h_mm, parent=None):
-    """
-    Print a solid gray page for calibration (no overlays, full A4 area).
-    Args:
-        page_w_mm (float): Page width in mm (e.g. 210.0 for A4).
-        page_h_mm (float): Page height in mm (e.g. 297.0 for A4).
-        parent: Parent widget for the print dialog.
-    """
     printer = QPrinter(QPrinter.HighResolution)
     printer.setFullPage(True)
     dlg = QPrintDialog(printer, parent)
@@ -21,12 +14,6 @@ def print_calibration(page_w_mm, page_h_mm, parent=None):
         painter.end()
 
 def print_sheet(preview_widget, parent=None):
-    """
-    Print the label sheet as shown in the preview widget (WYSIWYG).
-    Args:
-        preview_widget: The QWidget (SheetPreview) with the correct layout drawn.
-        parent: Parent widget for the print dialog.
-    """
     printer = QPrinter(QPrinter.HighResolution)
     printer.setFullPage(True)
     dlg = QPrintDialog(printer, parent)
@@ -38,6 +25,7 @@ def print_sheet(preview_widget, parent=None):
         preview_widget.render(painter)
         preview_widget.resize(old_size)
         painter.end()
+
 def print_custom(preview_widget, parent=None, before_paint=None, after_paint=None):
     """
     Advanced: Print preview_widget, running hooks before/after paint.
