@@ -1,7 +1,7 @@
 import sys
 import os
 import json
-import printer  # <-- import your new printer.py module
+import printer
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy, QPushButton
@@ -41,6 +41,7 @@ class SheetPreview(QWidget):
         self.setMinimumSize(800, 600)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.calibration_mode = False
+        self.rendering_for_print = False # Flag to indicate if rendering is for print
 
     def set_calibration_mode(self, on):
         self.calibration_mode = on
@@ -84,10 +85,14 @@ class SheetPreview(QWidget):
         draw_x_mm = usable_x_mm + sheet_left
         draw_y_mm = usable_y_mm + sheet_top
 
-        # Always fit *A4 page* to preview, margin rectangle drawn inside
+        # --- CRITICAL: Always center preview on screen, but use offset=0 when printing ---
         scale = min((w-40) / (page_w_mm * MM_TO_PX), (h-40) / (page_h_mm * MM_TO_PX))
-        offset_x = (w - page_w_mm * MM_TO_PX * scale) / 2
-        offset_y = (h - page_h_mm * MM_TO_PX * scale) / 2
+        if getattr(self, 'rendering_for_print', False):
+            offset_x = 0
+            offset_y = 0
+        else:
+            offset_x = (w - page_w_mm * MM_TO_PX * scale) / 2
+            offset_y = (h - page_h_mm * MM_TO_PX * scale) / 2
 
         def mm_to_px(x_mm, y_mm):
             return (
@@ -103,7 +108,7 @@ class SheetPreview(QWidget):
             painter.fillRect(int(page_x), int(page_y), int(page_w), int(page_h), QColor("#dddddd"))
             return
 
-        # A4 background and border (always fixed size)
+        # --- Draw A4 background and border (should now align perfectly when printing) ---
         page_x, page_y = mm_to_px(0, 0)
         page_w = page_w_mm * MM_TO_PX * scale
         page_h = page_h_mm * MM_TO_PX * scale
@@ -111,12 +116,13 @@ class SheetPreview(QWidget):
         painter.setPen(QPen(QColor("#888888"), 2, Qt.DashLine))
         painter.drawRect(int(page_x), int(page_y), int(page_w), int(page_h))
 
-        # HW margin rectangle (dashed, always inside fixed page)
+        # HW margin rectangle (toggleable!)
         margin_x, margin_y = mm_to_px(hw_left, hw_top)
         margin_w = (page_w_mm - hw_left - hw_right) * MM_TO_PX * scale
         margin_h = (page_h_mm - hw_top - hw_bottom) * MM_TO_PX * scale
-        painter.setPen(QPen(QColor("#228"), 2, Qt.DashLine))
-        painter.drawRect(int(margin_x), int(margin_y), int(margin_w), int(margin_h))
+        if t.get('show_hw_margin', True):
+            painter.setPen(QPen(QColor("#228"), 2, Qt.DashLine))
+            painter.drawRect(int(margin_x), int(margin_y), int(margin_w), int(margin_h))
 
         # Ruler
         if t.get('ruler', True):
@@ -184,7 +190,7 @@ class SheetPreview(QWidget):
             painter.setPen(pen)
             row_centers_mm = []
             for r in range(rows - 1):
-                y1 = draw_y_mm + (r + 1) * label_h + r * row_gap
+                y1 = draw_x_mm + (r + 1) * label_h + r * row_gap
                 y2 = y1 + row_gap
                 center_y = y1 + (y2 - y1) / 2 if row_gap > 0 else y1
                 row_centers_mm.append(center_y)
@@ -210,7 +216,8 @@ class CalibrationTab(QWidget):
             'crosshairs': True,
             'ruler': True,
             'rounded': False,
-            'cal_square': False
+            'cal_square': False,
+            'show_hw_margin': True
         }
         loaded = load_sheet_settings()
         if loaded:
@@ -245,7 +252,6 @@ class CalibrationTab(QWidget):
         main_h = QHBoxLayout(self)
         controls = QVBoxLayout()
 
-        # BOTH PRINT BUTTONS, CALIBRATION ON TOP
         self.btn_calib_print = QPushButton("Калибриращ печат (сив фон)")
         self.btn_calib_print.clicked.connect(self.print_calibration)
         controls.addWidget(self.btn_calib_print)
@@ -326,11 +332,13 @@ class CalibrationTab(QWidget):
         self.chk_grid = QCheckBox("Показвай мрежата"); self.chk_grid.setChecked(self.toggles['grid'])
         self.chk_cal_square = QCheckBox("Покажи калибрационен квадрат"); self.chk_cal_square.setChecked(self.toggles['cal_square'])
         self.chk_crosses = QCheckBox("Показвай кръстчета"); self.chk_crosses.setChecked(self.toggles['crosshairs'])
+        self.chk_hw_margin = QCheckBox("Покажи рамка на принтера"); self.chk_hw_margin.setChecked(self.toggles['show_hw_margin'])
         for chk, k in [
             (self.chk_ruler, 'ruler'),
             (self.chk_grid, 'grid'),
             (self.chk_cal_square, 'cal_square'),
             (self.chk_crosses, 'crosshairs'),
+            (self.chk_hw_margin, 'show_hw_margin'),
         ]:
             chk.stateChanged.connect(lambda _, k=k: self.toggle_overlay(k))
             l_vis.addWidget(chk)
@@ -356,19 +364,21 @@ class CalibrationTab(QWidget):
             "rounded": "chk_rounded",
             "cal_square": "chk_cal_square",
             "crosshairs": "chk_crosses",
+            "show_hw_margin": "chk_hw_margin",
         }
         widget = getattr(self, toggle_names[key])
         self.toggles[key] = widget.isChecked()
         self.preview.update()
         self.save_settings()
 
-    # --------- PRINTER HOOKS ONLY ---------
     def print_calibration(self):
         printer.print_calibration(self.params['page_w'], self.params['page_h'], self)
 
     def print_sheet(self):
+        # Critical: set preview to "rendering_for_print" mode during print, then reset
+        self.preview.rendering_for_print = True
         printer.print_sheet(self.preview, self)
-    # --------------------------------------
+        self.preview.rendering_for_print = False
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
