@@ -48,7 +48,7 @@ def main():
     tabs.addTab(calibration, "Калибриране")
 
     layout.addWidget(tabs)
-    main_window.resize(1350, 780)
+    main_window.resize(1350, 1200)
     main_window.show()
 
     sys.exit(app.exec_())

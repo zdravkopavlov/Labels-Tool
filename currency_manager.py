@@ -2,118 +2,154 @@
 
 from PyQt5.QtCore import QObject, Qt
 from PyQt5.QtWidgets import QLineEdit
-from PyQt5.QtGui import QFocusEvent
+from PyQt5.QtGui import QFocusEvent, QDoubleValidator
 
 class CurrencyManager(QObject):
     """
     Two-way binds a BGN QLineEdit and an EUR QLineEdit.
     Handles:
-      • real-time or on-finish conversion (configurable)
-      • loop prevention
-      • always-prefix € and always-suffix ' лв.'
+      • configurable conversion direction: bgn→eur, eur→bgn, both, manual
+      • never doubles the currency sign
+      • conversion only on editingFinished (not on every keystroke)
+      • accepts only numbers and decimal signs
     """
+    MODES = {
+        "bgn_to_eur": 0,
+        "eur_to_bgn": 1,
+        "both": 2,
+        "manual": 3,
+    }
+    MODES_R = {v: k for k, v in MODES.items()}
+
     def __init__(self,
                  bgn_edit: QLineEdit,
                  eur_edit: QLineEdit,
                  rate: float = 1.95583,
-                 convert_on: str = "keystroke"  # or "focusout"
+                 mode: str = "bgn_to_eur"  # default
     ):
         super().__init__(bgn_edit.parent())
         self.bgn = bgn_edit
         self.eur = eur_edit
         self.rate = rate
+        self.set_mode(mode)
         self.updating = False
-        self.mode = convert_on
 
-        # set placeholders
+        # Placeholders
         self.bgn.setPlaceholderText("0.00 лв.")
         self.eur.setPlaceholderText("€0.00")
 
-        # hook events
-        if self.mode == "keystroke":
-            self.bgn.textChanged.connect(self._on_bgn)
-            self.eur.textChanged.connect(self._on_eur)
-        else:
-            self.bgn.editingFinished.connect(self._on_bgn)
-            self.eur.editingFinished.connect(self._on_eur)
+        # Numeric input only (accepts comma and dot)
+        validator = QDoubleValidator(0.0, 999999.99, 2)
+        validator.setNotation(QDoubleValidator.StandardNotation)
+        self.bgn.setValidator(validator)
+        self.eur.setValidator(validator)
 
-        # focus handlers to strip/add signs
+        # Connect events
+        self._connect_events()
+
+        # Focus handlers: add/remove signs only on focus out/in
         self.bgn.focusInEvent  = self._make_focusin(self.bgn,  suffix=" лв.", prefix="")
         self.bgn.focusOutEvent = self._make_focusout(self.bgn, suffix=" лв.", prefix="")
         self.eur.focusInEvent  = self._make_focusin(self.eur,  suffix="",     prefix="€")
         self.eur.focusOutEvent = self._make_focusout(self.eur, suffix="",     prefix="€")
 
-    def set_conversion_mode(self, mode):
-        # Disconnect everything first (safe to ignore exceptions)
+    def set_mode(self, mode):
+        """Set conversion mode and reconnect signals."""
+        if isinstance(mode, int):  # For session restoration
+            mode = self.MODES_R.get(mode, "bgn_to_eur")
+        self.mode = mode
+        self._connect_events()
+
+    def _connect_events(self):
+        """(Re)connects editingFinished based on mode."""
         try:
-            self.bgn.textChanged.disconnect(self._on_bgn)
+            self.bgn.editingFinished.disconnect(self._on_bgn)
         except Exception:
             pass
         try:
-            self.eur.textChanged.disconnect(self._on_eur)
+            self.eur.editingFinished.disconnect(self._on_eur)
         except Exception:
             pass
+        if self.mode == "bgn_to_eur":
+            self.bgn.editingFinished.connect(self._on_bgn)
+        elif self.mode == "eur_to_bgn":
+            self.eur.editingFinished.connect(self._on_eur)
+        elif self.mode == "both":
+            self.bgn.editingFinished.connect(self._on_bgn)
+            self.eur.editingFinished.connect(self._on_eur)
+        # Manual: don't connect
 
-        # Reconnect as needed
-        if mode == "bgn_to_eur":
-            self.bgn.textChanged.connect(self._on_bgn)
-        elif mode == "eur_to_bgn":
-            self.eur.textChanged.connect(self._on_eur)
-        elif mode == "both":
-            self.bgn.textChanged.connect(self._on_bgn)
-            self.eur.textChanged.connect(self._on_eur)
-        # else "manual" does not connect anything
-
-
-    def _on_bgn(self, *_):
-        if self.updating: return
-        txt = self.bgn.text().replace(" лв.","").strip().replace(",",".")
+    def _on_bgn(self):
+        if self.updating:
+            return
+        txt = self._strip(self.bgn.text())
+        if txt == "":
+            self._set_eur("")
+            return
         try:
-            val = float(txt)
-        except:
+            val = float(txt.replace(",", "."))
+        except Exception:
             return
         eur = val / self.rate
         self.updating = True
-        self.eur.setText(f"{eur:.2f}")
-        # Add the euro symbol after setting (simulate focus-out)
-        txt_eur = self.eur.text().strip()
-        if txt_eur and not txt_eur.startswith("€"):
-            self.eur.setText(f"€{txt_eur}")
+        self._set_eur(f"{eur:.2f}")
         self.updating = False
 
-    def _on_eur(self, *_):
-        if self.updating: return
-        txt = self.eur.text().replace("€","").strip().replace(",",".")
+    def _on_eur(self):
+        if self.updating:
+            return
+        txt = self._strip(self.eur.text())
+        if txt == "":
+            self._set_bgn("")
+            return
         try:
-            val = float(txt)
-        except:
+            val = float(txt.replace(",", "."))
+        except Exception:
             return
         bgn = val * self.rate
         self.updating = True
-        self.bgn.setText(f"{bgn:.2f}")
-        # Add the BGN symbol after setting (simulate focus-out)
-        txt_bgn = self.bgn.text().strip()
-        if txt_bgn and not txt_bgn.endswith(" лв."):
-            self.bgn.setText(f"{txt_bgn} лв.")
+        self._set_bgn(f"{bgn:.2f}")
         self.updating = False
+
+    def _set_bgn(self, value):
+        value = self._strip(value)
+        if value == "":
+            self.bgn.setText("")
+        else:
+            self.bgn.setText(value)
+
+    def _set_eur(self, value):
+        value = self._strip(value)
+        if value == "":
+            self.eur.setText("")
+        else:
+            self.eur.setText(value)
+
+    @staticmethod
+    def _strip(val):
+        """Remove all currency signs and spaces."""
+        return (val.replace(" лв.", "")
+                   .replace("лв.", "")
+                   .replace("€", "")
+                   .replace(" ", "")
+                   .strip())
 
     def _make_focusin(self, fld, suffix="", prefix=""):
         def handler(evt: QFocusEvent):
-            txt = fld.text().strip()
-            if prefix and txt.startswith(prefix):
-                txt = txt[len(prefix):]
-            if suffix and txt.endswith(suffix):
-                txt = txt[:-len(suffix)]
+            txt = self._strip(fld.text())
             fld.setText(txt)
             return QLineEdit.focusInEvent(fld, evt)
         return handler
 
     def _make_focusout(self, fld, suffix="", prefix=""):
         def handler(evt: QFocusEvent):
-            txt = fld.text().strip()
-            # strip any stray signs
-            txt = txt.replace(" лв.","").replace("€","").strip()
+            txt = self._strip(fld.text())
             if txt:
                 fld.setText(f"{prefix}{txt}{suffix}")
+            else:
+                fld.setText("")
             return QLineEdit.focusOutEvent(fld, evt)
         return handler
+
+    def get_mode(self):
+        return self.mode

@@ -1,94 +1,57 @@
-import os
-import json
-from PyQt5.QtCore import QObject, QEvent, Qt
+# selection_manager.py
 
-class SelectionManager(QObject):
+from PyQt5.QtCore import Qt
+
+class SelectionManager:
     """
-    Manages multi-label selection, label-click selection, and clearing on empty-space clicks.
+    Manages multi-label selection, label-click selection, always keeps at least one selected.
+    Usage: 
+      - selection = SelectionManager(label_widgets)
+      - selection.handle_click(idx, modifiers)
     """
-    def __init__(self, parent, labels):
-        super().__init__(parent)
-        self.parent = parent      # SheetWidget instance
-        self.labels = labels      # list of LabelWidget
-        self.selected = []        # indices of selected labels
-        self.last_clicked = None  # for shift-range
+    def __init__(self, label_widgets):
+        self.label_widgets = label_widgets
+        self.selected = [0] if label_widgets else []
 
-        # Install event filter on the scroll area's viewport
-        try:
-            self.parent.scroll.viewport().installEventFilter(self)
-        except Exception:
-            pass
-
-        # Connect each label's click signal
-        for lbl in self.labels:
-            lbl.clicked.connect(self.handle_label_click)
-            # Ensure hand cursor on hover (LabelWidget.update_style already sets cursor)
-
-    def select_all(self):
-        """Selects every label in the sheet."""
-        self.clear_selection()
-        self.selected = list(range(len(self.labels)))
-        for idx in self.selected:
-            self.labels[idx].set_selected(True)
-
-    def clear_selection(self):
-        """Clears any current selection."""
-        for idx in self.selected:
-            self.labels[idx].set_selected(False)
-        self.selected = []
-        self.last_clicked = None
-
-    def handle_label_click(self, label, event):
-        """
-        Handles Ctrl/Shift/regular clicks on a label to manage multi-selection.
-        """
-        try:
-            idx = self.labels.index(label)
-        except ValueError:
-            return
-        mods = event.modifiers()
-        if mods & Qt.ControlModifier:
-            # toggle
+    def handle_click(self, idx, modifiers):
+        if modifiers & Qt.ControlModifier:
             if idx in self.selected:
-                self.selected.remove(idx)
-                label.set_selected(False)
+                if len(self.selected) > 1:
+                    self.selected.remove(idx)
+                    self.label_widgets[idx].set_selected(False)
             else:
                 self.selected.append(idx)
-                label.set_selected(True)
-            self.last_clicked = idx
-        elif mods & Qt.ShiftModifier and self.last_clicked is not None:
-            # range select
-            start = min(self.last_clicked, idx)
-            end = max(self.last_clicked, idx)
-            for i in range(start, end+1):
+                self.label_widgets[idx].set_selected(True)
+        elif modifiers & Qt.ShiftModifier and self.selected:
+            start, end = min(self.selected[0], idx), max(self.selected[0], idx)
+            for i in range(start, end + 1):
                 if i not in self.selected:
                     self.selected.append(i)
-                    self.labels[i].set_selected(True)
+                    self.label_widgets[i].set_selected(True)
         else:
-            # single select
-            self.clear_selection()
+            for i, lbl in enumerate(self.label_widgets):
+                lbl.set_selected(i == idx)
             self.selected = [idx]
-            label.set_selected(True)
-            self.last_clicked = idx
+        # Always keep at least one selected
+        if not self.selected and self.label_widgets:
+            self.selected = [0]
+            self.label_widgets[0].set_selected(True)
 
-    def eventFilter(self, obj, ev):
-        """
-        Intercept clicks on the scroll viewport: if the click hits empty space,
-        clear the current selection. Safely ignore events when the widget has
-        already been deleted.
-        """
-        try:
-            if ev.type() == QEvent.MouseButtonPress and obj is self.parent.scroll.viewport():
-                pos = ev.pos()
-                # if click is on any label, do nothing
-                for lbl in self.labels:
-                    local = lbl.parentWidget().mapFrom(self.parent.scroll.viewport(), pos)
-                    if lbl.geometry().contains(local):
-                        return False
-                # clicked on whitespace => clear
-                self.clear_selection()
-                return True
-        except RuntimeError:
-            # underlying C++ object deleted
-            return False
-        return super().eventFilter(obj, ev)
+    def get_selected(self):
+        return self.selected.copy()
+
+    def set_selected(self, idxs):
+        # Deselect all first
+        for i, lbl in enumerate(self.label_widgets):
+            lbl.set_selected(i in idxs)
+        self.selected = [i for i in idxs if i < len(self.label_widgets)]
+        if not self.selected and self.label_widgets:
+            self.selected = [0]
+            self.label_widgets[0].set_selected(True)
+
+    def ensure_valid(self):
+        if not self.selected and self.label_widgets:
+            self.selected = [0]
+            self.label_widgets[0].set_selected(True)
+        else:
+            self.selected = [i for i in self.selected if i < len(self.label_widgets)]

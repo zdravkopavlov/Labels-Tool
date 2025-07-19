@@ -1,54 +1,53 @@
 # clipboard_manager.py
 
-import os
 from PyQt5.QtCore import QObject
 from PyQt5.QtWidgets import QShortcut
 from PyQt5.QtGui import QKeySequence
-from label_widget import LabelWidget
 
 class ClipboardManager(QObject):
     """
-    Handles global Ctrl+C / Ctrl+V copy-paste for a grid of LabelWidget instances,
+    Handles Ctrl+C / Ctrl+V copy-paste for a grid of label dicts,
     using a SelectionManager to know which labels are selected.
     """
-
-    def __init__(self, parent_widget, labels, selection_manager):
+    def __init__(self, parent_widget, labels, selection_manager, update_callback):
         super().__init__(parent_widget)
         self.labels = labels
         self.selection = selection_manager
+        self.clipboard = None
+        self.clipboard_style = None
+        self.update_callback = update_callback
 
         # Register keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+C"), parent_widget, activated=self.copy)
         QShortcut(QKeySequence("Ctrl+V"), parent_widget, activated=self.paste)
 
     def copy(self):
-        """
-        Copy the contents of the first selected label to the internal clipboard.
-        """
-        idxs = self.selection.selected
+        idxs = self.selection.get_selected()
         if not idxs:
             return
         first = idxs[0]
-        self.labels[first]._copy()  # stores data in LabelWidget._copied_content
+        self.clipboard = {k: self.labels[first][k].copy() for k in self.labels[first]}
+        self.clipboard_style = None
 
-    def paste(self):
-        """
-        Paste the internal clipboard data into all selected labels.
-        """
-        idxs = self.selection.selected
+    def copy_style(self):
+        idxs = self.selection.get_selected()
         if not idxs:
             return
-        data = getattr(LabelWidget, "_copied_content", None)
-        if not data:
+        first = idxs[0]
+        self.clipboard_style = {k: {kk: vv for kk, vv in self.labels[first][k].items() if kk != "text"} for k in self.labels[first]}
+        self.clipboard = None
+
+    def paste(self):
+        idxs = self.selection.get_selected()
+        if not idxs:
             return
-
-        # data is a tuple: (name, subtype, price_bgn, price_eur, unit_eur)
-        name, subtype, price_bgn, price_eur, unit_eur = data
-
-        for idx in idxs:
-            lbl = self.labels[idx]
-            lbl.set_name(name)
-            lbl.set_type(subtype)
-            lbl.set_price(price_bgn)
-            lbl.set_price_eur(price_eur)
-            lbl.set_unit_eur_text(unit_eur)
+        if self.clipboard:
+            for idx in idxs:
+                for k in self.labels[idx]:
+                    self.labels[idx][k] = self.clipboard[k].copy()
+        elif self.clipboard_style:
+            for idx in idxs:
+                for k in self.labels[idx]:
+                    for sk, vv in self.clipboard_style[k].items():
+                        self.labels[idx][k][sk] = vv
+        self.update_callback()
