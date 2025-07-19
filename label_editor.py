@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QButtonGroup, QToolButton, QSizePolicy, QGridLayout, QMenu, QColorDialog, QWidgetAction, QScrollArea
 )
 from PyQt5.QtGui import QFont, QFontDatabase, QPainter, QPen, QColor, QIcon
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 
 from currency_manager import CurrencyManager
 from session_manager import SessionManager
@@ -30,6 +30,10 @@ def blank_label():
     }
 
 def resource_path(relpath):
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
+    p = os.path.join(folder, relpath)
+    if os.path.exists(p):
+        return p
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relpath)
     return relpath
@@ -80,7 +84,7 @@ class SheetLabel(QWidget):
         h_px = self.label_h_px
         qp = QPainter(self)
         qp.setRenderHint(QPainter.Antialiasing)
-        qp.setPen(QPen(QColor("#2c7ee9") if self.selected else QColor("#ffffff"), 2*int(s) if self.selected else 1))
+        qp.setPen(QPen(QColor("#2c7ee9") if self.selected else QColor("#cccccc"), 2*int(s) if self.selected else 1))
         qp.setBrush(QColor(label["main"]["bg_color"]))
         qp.drawRoundedRect(int(6*s), int(6*s), int(w_px*s), int(h_px*s), 12*s, 12*s)
         margin = int(16*s)
@@ -89,10 +93,14 @@ class SheetLabel(QWidget):
         lines = []
         for key in ["main", "second", "bgn", "eur"]:
             fld = label[key]
-            if fld["text"]:
-                t = fld["text"]
-                if key=="bgn": t += " лв."
-                if key=="eur": t = "€"+t
+            t = fld["text"]
+            if key=="bgn":
+                t = t.replace(" лв.", "").replace("лв.", "").strip()
+                if t: t += " лв."
+            if key=="eur":
+                t = t.replace("€", "").strip()
+                if t: t = "€" + t
+            if t:
                 lines.append((t, fld))
         total_h, metrics = 0, []
         for text, field in lines:
@@ -133,37 +141,14 @@ class LabelSheetEditor(QWidget):
         self.labels = [blank_label() for _ in range(self.rows*self.cols)]
         self.clipboard = None
         self.clipboard_style = None
-        self.session_manager = SessionManager(self)
         self.selected = [0] if self.labels else []
         self.active_field = "main"
-        self.init_ui()
-        self.session_manager.load_session()
-        self.ensure_at_least_one_selected()
 
-    def compute_preview_scale(self):
-        total_label_height = self.rows * self.label_h_px + self.rows * 18
-        scale = min(DEFAULT_PREVIEW_SCALE, MAX_GRID_HEIGHT / total_label_height)
-        return max(MIN_PREVIEW_SCALE, scale)
-
-    def load_sheet_settings(self):
-        path = sheet_settings_path()
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                return data.get("params", {})
-            except Exception:
-                return {}
-        return {}
-
-    def save_session(self):
-        self.session_manager.save_session()
-
-    def init_ui(self):
+        # --- Build the UI widgets first (so self.field_inputs exists!) ---
         main_h = QHBoxLayout(self)
         left_panel = QVBoxLayout()
 
-        # --- TOOLBAR ---
+        # --- Styling toolbar (font, bold, etc) ---
         tbar = QHBoxLayout()
         self.font_combo = QComboBox(); self.font_combo.addItems(self.font_list)
         self.font_size_minus = QToolButton(); self.font_size_minus.setText("–")
@@ -175,13 +160,13 @@ class LabelSheetEditor(QWidget):
         self.italic_btn.setStyleSheet("font-style: italic;")
         self.align_group = QButtonGroup(self)
         self.align_left = QToolButton(); self.align_left.setCheckable(True)
-        self.align_left.setIcon(QIcon(resource_path("resources/format_align_left.svg")))
+        self.align_left.setIcon(QIcon(resource_path("format_align_left.svg")))
         self.align_left.setToolTip("Подравняване вляво")
         self.align_center = QToolButton(); self.align_center.setCheckable(True)
-        self.align_center.setIcon(QIcon(resource_path("resources/format_align_center.svg")))
+        self.align_center.setIcon(QIcon(resource_path("format_align_center.svg")))
         self.align_center.setToolTip("Центрирано")
         self.align_right = QToolButton(); self.align_right.setCheckable(True)
-        self.align_right.setIcon(QIcon(resource_path("resources/format_align_right.svg")))
+        self.align_right.setIcon(QIcon(resource_path("format_align_right.svg")))
         self.align_right.setToolTip("Подравняване вдясно")
         self.align_group.addButton(self.align_left, Qt.AlignLeft)
         self.align_group.addButton(self.align_center, Qt.AlignCenter)
@@ -191,15 +176,6 @@ class LabelSheetEditor(QWidget):
                   self.bold_btn, self.italic_btn, self.align_left, self.align_center, self.align_right]:
             tbar.addWidget(w)
         tbar.addStretch(1)
-
-        # --- Currency conversion mode dropdown
-        self.conv_mode_combo = QComboBox()
-        for label, key in CONV_MODES:
-            self.conv_mode_combo.addItem(label, key)
-        self.conv_mode_combo.setCurrentIndex(0)
-        self.conv_mode_combo.setToolTip("Режим на конвертиране BGN/EUR")
-        tbar.addWidget(QLabel("Режим:"))
-        tbar.addWidget(self.conv_mode_combo)
 
         # --- Color Swatch Buttons ---
         color_icon_size = 26
@@ -233,7 +209,7 @@ class LabelSheetEditor(QWidget):
         left_panel.addLayout(tbar)
         left_panel.addSpacing(10)
 
-        # Field editors
+        # --- Field editors ---
         self.field_inputs = {}
         for key, lbl in [("main","Основен текст:"),("second","Втори ред:"),("bgn","Цена BGN:"),("eur","Цена EUR:")]:
             left_panel.addWidget(QLabel(lbl))
@@ -243,29 +219,78 @@ class LabelSheetEditor(QWidget):
                 w = QLineEdit(); w.setFont(QFont("Arial",16))
             self.field_inputs[key] = w
             left_panel.addWidget(w)
+
+        # --- Conversion dropdown below price fields ---
+        self.conv_mode_combo = QComboBox()
+        for label, key in CONV_MODES:
+            self.conv_mode_combo.addItem(label, key)
+        self.conv_mode_combo.setCurrentIndex(0)
+        self.conv_mode_combo.setToolTip("Режим на конвертиране BGN/EUR")
+        left_panel.addSpacing(6)
+        left_panel.addWidget(QLabel("Конвертиране на валута:"))
+        left_panel.addWidget(self.conv_mode_combo)
+
         left_panel.addStretch(1)
+
+        # --- Print and PDF buttons at bottom left ---
+        btn_row = QHBoxLayout()
+        self.print_btn = QToolButton()
+        self.print_btn.setIcon(QIcon(resource_path("print_.svg")))
+        self.print_btn.setText("Печат")
+        self.print_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.print_btn.setFixedHeight(36)
+        self.print_btn.setToolTip("Печат на етикетите")
+        btn_row.addWidget(self.print_btn)
+
+        self.pdf_btn = QToolButton()
+        self.pdf_btn.setIcon(QIcon(resource_path("export_as_pdf.svg")))
+        self.pdf_btn.setText("Запази PDF")
+        self.pdf_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.pdf_btn.setFixedHeight(36)
+        self.pdf_btn.setToolTip("Експортиране като PDF")
+        btn_row.addWidget(self.pdf_btn)
+
+        left_panel.addLayout(btn_row)
         main_h.addLayout(left_panel, 0)
 
-        # --- Label grid inside scroll area ---
-        grid_panel = QVBoxLayout()
-        grid_panel.addWidget(QLabel("  Кликни за да избереш. Кликни с десен бутон за меню."))
+        # --- Right pane: SESSION TOOLBAR + GRID ---
+        right_panel = QVBoxLayout()
+        session_row = QHBoxLayout()
+        self.save_sess_btn = QToolButton()
+        self.save_sess_btn.setText("Запази сесия")
+        self.save_sess_btn.setToolTip("Запис на сесията в отделен файл")
+        self.save_sess_btn.clicked.connect(self.save_session_as)
+        session_row.addWidget(self.save_sess_btn)
+
+        self.load_sess_btn = QToolButton()
+        self.load_sess_btn.setText("Зареди сесия")
+        self.load_sess_btn.setToolTip("Зареждане на сесия от файл")
+        self.load_sess_btn.clicked.connect(self.load_session_as)
+        session_row.addWidget(self.load_sess_btn)
+
+        session_row.addStretch(1)
+        right_panel.addLayout(session_row)
+        right_panel.addWidget(QLabel("  Кликни за да избереш. Кликни с десен бутон за меню."))
 
         self.grid_widget = QWidget()
         self.grid = QGridLayout(self.grid_widget)
         self.grid.setSpacing(18)
-
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setWidget(self.grid_widget)
-        grid_panel.addWidget(self.scroll_area)
-
+        right_panel.addWidget(self.scroll_area)
         reload_btn = QToolButton()
         reload_btn.setText("Обнови от калибрация")
         reload_btn.clicked.connect(self.reload_from_calibration)
-        grid_panel.addWidget(reload_btn)
-        grid_panel.addStretch(1)
-        main_h.addLayout(grid_panel, 1)
+        right_panel.addWidget(reload_btn)
+        right_panel.addStretch(1)
+        main_h.addLayout(right_panel, 1)
 
+        # --- Now managers (order matters!) ---
+        self.currency_manager = CurrencyManager(self.field_inputs['bgn'], self.field_inputs['eur'])
+        self.session_manager = SessionManager(self)
+
+        # --- Signals, mode restore, etc ---
         self.build_label_grid()
 
         for key, widget in self.field_inputs.items():
@@ -287,20 +312,16 @@ class LabelSheetEditor(QWidget):
             widget.installEventFilter(self)
         self.update_edit_panel_from_selection()
 
-        # --- Currency manager for BGN/EUR fields ---
-        self.currency_manager = CurrencyManager(self.field_inputs['bgn'], self.field_inputs['eur'])
-
-        # Set mode from session (if loaded)
         session_mode = getattr(self.session_manager, 'last_mode', None)
         mode = session_mode if session_mode else "bgn_to_eur"
         self.currency_manager.set_mode(mode)
         self.set_conv_dropdown(mode)
 
         self.conv_mode_combo.currentIndexChanged.connect(self.on_conv_mode_changed)
-
-        # Force label update after any currency editingFinished
         self.field_inputs['bgn'].editingFinished.connect(self.update_edit_panel_from_selection)
         self.field_inputs['eur'].editingFinished.connect(self.update_edit_panel_from_selection)
+        self.session_manager.load_session()
+        self.ensure_at_least_one_selected()
 
     def set_conv_dropdown(self, mode):
         for i, (_, key) in enumerate(CONV_MODES):
@@ -311,7 +332,32 @@ class LabelSheetEditor(QWidget):
     def on_conv_mode_changed(self, idx):
         mode = self.conv_mode_combo.itemData(idx)
         self.currency_manager.set_mode(mode)
-        self.save_session()  # persist mode with session
+        self.save_session()
+
+    def save_session(self):
+        self.session_manager.save_session()
+    def save_session_as(self):
+        self.session_manager.save_session_as()
+    def load_session_as(self):
+        self.session_manager.load_session_as()
+        self.set_conv_dropdown(self.session_manager.last_mode)
+        self.currency_manager.set_mode(self.session_manager.last_mode)
+
+    def compute_preview_scale(self):
+        total_label_height = self.rows * self.label_h_px + self.rows * 18
+        scale = min(DEFAULT_PREVIEW_SCALE, MAX_GRID_HEIGHT / total_label_height)
+        return max(MIN_PREVIEW_SCALE, scale)
+
+    def load_sheet_settings(self):
+        path = sheet_settings_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("params", {})
+            except Exception:
+                return {}
+        return {}
 
     def build_label_grid(self):
         while self.grid.count():
@@ -638,3 +684,5 @@ if __name__ == "__main__":
     win.resize(1350, 1000)
     win.show()
     sys.exit(app.exec_())
+
+
