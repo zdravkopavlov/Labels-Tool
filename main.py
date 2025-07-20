@@ -8,6 +8,7 @@ from version import VERSION
 
 # Import your main widget classes from the respective modules
 from label_editor import LabelSheetEditor
+
 from sheet_calibration_utility import CalibrationTab
 
 APP_NAME = "Строймаркет Цаков – Етикетен инструмент -"
@@ -40,7 +41,6 @@ def main():
                 if families: FONT_LIST.extend(families)
     if not FONT_LIST:
         FONT_LIST = ["Arial"]
-
     label_editor = LabelSheetEditor(FONT_LIST)
     calibration = CalibrationTab()
 

@@ -1,155 +1,133 @@
-# currency_manager.py
-
-from PyQt5.QtCore import QObject, Qt
-from PyQt5.QtWidgets import QLineEdit
-from PyQt5.QtGui import QFocusEvent, QDoubleValidator
+from PyQt5.QtCore import QObject, QEvent, pyqtSignal
+import re
 
 class CurrencyManager(QObject):
-    """
-    Two-way binds a BGN QLineEdit and an EUR QLineEdit.
-    Handles:
-      • configurable conversion direction: bgn→eur, eur→bgn, both, manual
-      • never doubles the currency sign
-      • conversion only on editingFinished (not on every keystroke)
-      • accepts only numbers and decimal signs
-    """
-    MODES = {
-        "bgn_to_eur": 0,
-        "eur_to_bgn": 1,
-        "both": 2,
-        "manual": 3,
-    }
-    MODES_R = {v: k for k, v in MODES.items()}
+    price_converted = pyqtSignal(str, str)  # which ("bgn" or "eur"), value (as string)
 
-    def __init__(self,
-                 bgn_edit: QLineEdit,
-                 eur_edit: QLineEdit,
-                 rate: float = 1.95583,
-                 mode: str = "bgn_to_eur"  # default
-    ):
-        super().__init__(bgn_edit.parent())
-        self.bgn = bgn_edit
-        self.eur = eur_edit
-        self.rate = rate
-        self.set_mode(mode)
-        self.updating = False
+    BGN_TO_EUR = "bgn_to_eur"
+    EUR_TO_BGN = "eur_to_bgn"
+    BOTH = "both"
+    MANUAL = "manual"
 
-        # Placeholders
-        self.bgn.setPlaceholderText("0.00 лв.")
-        self.eur.setPlaceholderText("€0.00")
+    def __init__(self, bgn_field, eur_field, parent=None):
+        super().__init__(parent)
+        self.bgn_field = bgn_field
+        self.eur_field = eur_field
+        self.mode = self.BGN_TO_EUR
+        self.exchange_rate = 1.95583  # BGN to EUR
 
-        # Numeric input only (accepts comma and dot)
-        validator = QDoubleValidator(0.0, 999999.99, 2)
-        validator.setNotation(QDoubleValidator.StandardNotation)
-        self.bgn.setValidator(validator)
-        self.eur.setValidator(validator)
+        self._last_clean = {"bgn": "", "eur": ""}
 
-        # Connect events
-        self._connect_events()
-
-        # Focus handlers: add/remove signs only on focus out/in
-        self.bgn.focusInEvent  = self._make_focusin(self.bgn,  suffix=" лв.", prefix="")
-        self.bgn.focusOutEvent = self._make_focusout(self.bgn, suffix=" лв.", prefix="")
-        self.eur.focusInEvent  = self._make_focusin(self.eur,  suffix="",     prefix="€")
-        self.eur.focusOutEvent = self._make_focusout(self.eur, suffix="",     prefix="€")
+        # Set up event filter and handlers
+        for field, which in ((self.bgn_field, "bgn"), (self.eur_field, "eur")):
+            field.installEventFilter(self)
+            field.textEdited.connect(lambda val, w=which: self._on_text_edited(w, val))
+            field.editingFinished.connect(lambda w=which: self._on_editing_finished(w))
+            field.focused = False  # For focus logic
 
     def set_mode(self, mode):
-        """Set conversion mode and reconnect signals."""
-        if isinstance(mode, int):  # For session restoration
-            mode = self.MODES_R.get(mode, "bgn_to_eur")
+        if mode not in (self.BGN_TO_EUR, self.EUR_TO_BGN, self.BOTH, self.MANUAL):
+            mode = self.BGN_TO_EUR
         self.mode = mode
-        self._connect_events()
-
-    def _connect_events(self):
-        """(Re)connects editingFinished based on mode."""
-        try:
-            self.bgn.editingFinished.disconnect(self._on_bgn)
-        except Exception:
-            pass
-        try:
-            self.eur.editingFinished.disconnect(self._on_eur)
-        except Exception:
-            pass
-        if self.mode == "bgn_to_eur":
-            self.bgn.editingFinished.connect(self._on_bgn)
-        elif self.mode == "eur_to_bgn":
-            self.eur.editingFinished.connect(self._on_eur)
-        elif self.mode == "both":
-            self.bgn.editingFinished.connect(self._on_bgn)
-            self.eur.editingFinished.connect(self._on_eur)
-        # Manual: don't connect
-
-    def _on_bgn(self):
-        if self.updating:
-            return
-        txt = self._strip(self.bgn.text())
-        if txt == "":
-            self._set_eur("")
-            return
-        try:
-            val = float(txt.replace(",", "."))
-        except Exception:
-            return
-        eur = val / self.rate
-        self.updating = True
-        self._set_eur(f"{eur:.2f}")
-        self.updating = False
-
-    def _on_eur(self):
-        if self.updating:
-            return
-        txt = self._strip(self.eur.text())
-        if txt == "":
-            self._set_bgn("")
-            return
-        try:
-            val = float(txt.replace(",", "."))
-        except Exception:
-            return
-        bgn = val * self.rate
-        self.updating = True
-        self._set_bgn(f"{bgn:.2f}")
-        self.updating = False
-
-    def _set_bgn(self, value):
-        value = self._strip(value)
-        if value == "":
-            self.bgn.setText("")
-        else:
-            self.bgn.setText(value)
-
-    def _set_eur(self, value):
-        value = self._strip(value)
-        if value == "":
-            self.eur.setText("")
-        else:
-            self.eur.setText(value)
-
-    @staticmethod
-    def _strip(val):
-        """Remove all currency signs and spaces."""
-        return (val.replace(" лв.", "")
-                   .replace("лв.", "")
-                   .replace("€", "")
-                   .replace(" ", "")
-                   .strip())
-
-    def _make_focusin(self, fld, suffix="", prefix=""):
-        def handler(evt: QFocusEvent):
-            txt = self._strip(fld.text())
-            fld.setText(txt)
-            return QLineEdit.focusInEvent(fld, evt)
-        return handler
-
-    def _make_focusout(self, fld, suffix="", prefix=""):
-        def handler(evt: QFocusEvent):
-            txt = self._strip(fld.text())
-            if txt:
-                fld.setText(f"{prefix}{txt}{suffix}")
-            else:
-                fld.setText("")
-            return QLineEdit.focusOutEvent(fld, evt)
-        return handler
 
     def get_mode(self):
         return self.mode
+
+    def _strip_sign(self, text, which):
+        t = text.strip().replace(" ", "")
+        if which == "bgn":
+            t = re.sub(r"лв\.?$", "", t, flags=re.IGNORECASE)
+        elif which == "eur":
+            t = t.replace("€", "")
+        return t
+
+    def _clean_input(self, text):
+        t = text.replace(",", ".")
+        t = re.sub(r"[^0-9.]", "", t)
+        if t.count(".") > 1:
+            first = t.find(".")
+            t = t[:first+1] + t[first+1:].replace(".", "")
+        return t
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.FocusIn:
+            which = "bgn" if obj is self.bgn_field else "eur"
+            obj.focused = True
+            raw = obj.text()
+            clean = self._clean_input(self._strip_sign(raw, which))
+            obj.blockSignals(True)
+            obj.setText(clean)
+            obj.blockSignals(False)
+            return False
+        elif event.type() == QEvent.FocusOut:
+            which = "bgn" if obj is self.bgn_field else "eur"
+            obj.focused = False
+            self._on_editing_finished(which)
+            return False
+        return super().eventFilter(obj, event)
+
+    def _on_text_edited(self, which, val):
+        clean = self._clean_input(self._strip_sign(val, which))
+        self._last_clean[which] = clean
+
+    def _on_editing_finished(self, which):
+        field = self.bgn_field if which == "bgn" else self.eur_field
+        val = field.text()
+        clean = self._clean_input(self._strip_sign(val, which))
+        value = float(clean) if clean else 0.0
+        self._last_clean[which] = clean
+
+        formatted = self._format_bgn(value) if which == "bgn" else self._format_eur(value)
+        field.blockSignals(True)
+        field.setText(formatted)
+        field.blockSignals(False)
+
+        # Conversion logic with signal
+        if self.mode == self.BGN_TO_EUR and which == "bgn":
+            eur_val = round(value / self.exchange_rate, 2)
+            self._last_clean["eur"] = f"{eur_val:.2f}".rstrip("0").rstrip(".")
+            eur_display = self._format_eur(eur_val) if eur_val else ""
+            self.eur_field.blockSignals(True)
+            self.eur_field.setText(eur_display)
+            self.eur_field.blockSignals(False)
+            self.price_converted.emit("eur", self._last_clean["eur"])
+        elif self.mode == self.EUR_TO_BGN and which == "eur":
+            bgn_val = round(value * self.exchange_rate, 2)
+            self._last_clean["bgn"] = f"{bgn_val:.2f}".rstrip("0").rstrip(".")
+            bgn_display = self._format_bgn(bgn_val) if bgn_val else ""
+            self.bgn_field.blockSignals(True)
+            self.bgn_field.setText(bgn_display)
+            self.bgn_field.blockSignals(False)
+            self.price_converted.emit("bgn", self._last_clean["bgn"])
+        elif self.mode == self.BOTH:
+            if which == "bgn":
+                eur_val = round(value / self.exchange_rate, 2)
+                self._last_clean["eur"] = f"{eur_val:.2f}".rstrip("0").rstrip(".")
+                eur_display = self._format_eur(eur_val) if eur_val else ""
+                self.eur_field.blockSignals(True)
+                self.eur_field.setText(eur_display)
+                self.eur_field.blockSignals(False)
+                self.price_converted.emit("eur", self._last_clean["eur"])
+            else:
+                bgn_val = round(value * self.exchange_rate, 2)
+                self._last_clean["bgn"] = f"{bgn_val:.2f}".rstrip("0").rstrip(".")
+                bgn_display = self._format_bgn(bgn_val) if bgn_val else ""
+                self.bgn_field.blockSignals(True)
+                self.bgn_field.setText(bgn_display)
+                self.bgn_field.blockSignals(False)
+                self.price_converted.emit("bgn", self._last_clean["bgn"])
+        # MANUAL: do nothing
+
+    def _format_bgn(self, value):
+        s = f"{value:.2f}".rstrip("0").rstrip(".")
+        return f"{s} лв." if s else ""
+
+    def _format_eur(self, value):
+        s = f"{value:.2f}".rstrip("0").rstrip(".")
+        return f"€{s}" if s else ""
+
+    def get_clean_bgn(self):
+        return self._last_clean["bgn"]
+
+    def get_clean_eur(self):
+        return self._last_clean["eur"]
