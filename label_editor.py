@@ -341,7 +341,7 @@ class LabelSheetEditor(QWidget):
 
     def render_sheet(self, qp, dpi):
         # Read calibration
-        settings = self.load_sheet_settings()
+        settings = load_sheet_settings()
         rows = settings.get('rows', 3)
         cols = settings.get('cols', 3)
         label_w = settings.get('label_w', 63.5)
