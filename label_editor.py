@@ -159,7 +159,7 @@ class LabelSheetEditor(QWidget):
         copy_action = menu.addAction("Копирай Етикет")
         copystyle_action = menu.addAction("Копирай форматиране")
         paste_action = menu.addAction("Постави")
-        action = menu.exec_(self.preview_pane.label_widgets[idx].mapToGlobal(event.pos()))
+        action = menu.exec_(self.preview_pane.mapToGlobal(event.pos()))
         sel = self.selected
         if action == copy_action:
             self.clipboard = {k: self.labels[idx][k].copy() for k in self.labels[idx]}
@@ -340,7 +340,7 @@ class LabelSheetEditor(QWidget):
         QMessageBox.information(self, "Успех", "PDF файлът е запазен успешно.")
 
     def render_sheet(self, qp, dpi):
-        # Read calibration
+        # Read calibration settings
         settings = load_sheet_settings()
         rows = settings.get('rows', 3)
         cols = settings.get('cols', 3)
@@ -350,20 +350,14 @@ class LabelSheetEditor(QWidget):
         margin_top = settings.get('margin_top', 0)
         spacing_x = settings.get('spacing_x', 0)
         spacing_y = settings.get('spacing_y', 0)
+        scale_correction = settings.get('user_scale_factor', 1.0)
         sheet_w = settings.get('sheet_w', 210)
         sheet_h = settings.get('sheet_h', 297)
-        # MOST IMPORTANT: scaling factor
-        scale_correction = settings.get('user_scale_factor', 1.0)
 
+        # All math in mm first
         px_per_mm = dpi / 25.4 * scale_correction
-        sheet_w_px = int(sheet_w * px_per_mm)
-        sheet_h_px = int(sheet_h * px_per_mm)
-        label_w_px = int(label_w * px_per_mm)
-        label_h_px = int(label_h * px_per_mm)
-        margin_left_px = int(margin_left * px_per_mm)
-        margin_top_px = int(margin_top * px_per_mm)
-        spacing_x_px = int(spacing_x * px_per_mm)
-        spacing_y_px = int(spacing_y * px_per_mm)
+        sheet_w_px = round(sheet_w * px_per_mm)
+        sheet_h_px = round(sheet_h * px_per_mm)
 
         qp.setRenderHint(qp.Antialiasing)
         qp.setBrush(Qt.white)
@@ -371,14 +365,21 @@ class LabelSheetEditor(QWidget):
         qp.drawRect(0, 0, sheet_w_px, sheet_h_px)
 
         idx = 0
+
         for row in range(rows):
             for col in range(cols):
                 if idx >= len(self.labels):
                     break
-                x = margin_left_px + col * (label_w_px + spacing_x_px)
-                y = margin_top_px + row * (label_h_px + spacing_y_px)
-                self.draw_label_print(qp, x, y, label_w_px, label_h_px, self.labels[idx])
+                # Calculate label top-left corner (identical math as calibration grid)
+                x_mm = margin_left + col * (label_w + spacing_x)
+                y_mm = margin_top + row * (label_h + spacing_y)
+                x = round(x_mm * px_per_mm)
+                y = round(y_mm * px_per_mm)
+                w = round(label_w * px_per_mm)
+                h = round(label_h * px_per_mm)
+                self.draw_label_print(qp, x, y, w, h, self.labels[idx])
                 idx += 1
+
 
     def draw_label_print(self, qp, x, y, w, h, label):
         from PyQt5.QtGui import QColor, QFont

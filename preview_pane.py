@@ -1,54 +1,88 @@
-from PyQt5.QtWidgets import QWidget, QGridLayout, QScrollArea, QVBoxLayout, QToolButton
-from PyQt5.QtCore import Qt, QSize, pyqtSignal
-from PyQt5.QtGui import QPainter, QPen, QColor, QFont
+from PyQt5.QtWidgets import QWidget, QSizePolicy
+from PyQt5.QtCore import Qt, pyqtSignal, QRect
+from PyQt5.QtGui import QColor, QPainter, QPen, QFont
 
-class SheetLabel(QWidget):
-    clicked = pyqtSignal(object, object)
-    rightClicked = pyqtSignal(object, object)
-    def __init__(self, idx, get_label, selected=False, label_w_px=150, label_h_px=60):
-        super().__init__()
-        self.idx = idx
-        self.get_label = get_label
-        self.selected = selected
-        self.setFocusPolicy(Qt.StrongFocus)
-        self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumSize(label_w_px, label_h_px)
-        self.setMaximumSize(label_w_px, label_h_px)
-        self.setSizePolicy(QWidget.sizePolicy(self))
+PREVIEW_LABEL_SCALE = 3.0  # <-- Adjust this to make preview bigger/smaller
+PREVIEW_LABEL_GAP = 5     # gap in px
 
-    def set_selected(self, on=True):
-        self.selected = on
+class PreviewPaneWidget(QWidget):
+    label_clicked = pyqtSignal(int, object)
+    label_right_clicked = pyqtSignal(int, object)
+
+    def __init__(self, labels, rows, cols, label_w_mm, label_h_mm, spacing_px=12, parent=None):
+        super().__init__(parent)
+        self.labels = labels
+        self.rows = rows
+        self.cols = cols
+        self.label_w_mm = label_w_mm
+        self.label_h_mm = label_h_mm
+        self.gap = PREVIEW_LABEL_GAP
+        self.selected = []
+        self.setMinimumSize(600, 400)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setMouseTracking(True)
+
+    def update_labels(self, labels):
+        self.labels = labels
         self.update()
 
-    def mousePressEvent(self, ev):
-        if ev.button() == Qt.LeftButton:
-            self.clicked.emit(self, ev)
-        elif ev.button() == Qt.RightButton:
-            self.rightClicked.emit(self, ev)
+    def set_selected(self, selected):
+        self.selected = selected
+        self.update()
+
+    def update_calibration(self, rows, cols, label_w_mm, label_h_mm):
+        self.rows = rows
+        self.cols = cols
+        self.label_w_mm = label_w_mm
+        self.label_h_mm = label_h_mm
+        self.update()
 
     def paintEvent(self, event):
-        label = self.get_label()
         qp = QPainter(self)
         qp.setRenderHint(QPainter.Antialiasing)
-        rect = self.rect().adjusted(3,3,-3,-3)
-        qp.setPen(QPen(QColor("#2c7ee9") if self.selected else QColor("#cccccc"), 2 if self.selected else 1))
-        qp.setBrush(QColor(label["main"]["bg_color"]))
-        qp.drawRoundedRect(rect, 12, 12)
+        # Label size in px (using calibration × scale)
+        label_w_px = int(self.label_w_mm * PREVIEW_LABEL_SCALE)
+        label_h_px = int(self.label_h_mm * PREVIEW_LABEL_SCALE)
+        gap_px = self.gap
+        total_w = self.cols * label_w_px + (self.cols - 1) * gap_px
+        total_h = self.rows * label_h_px + (self.rows - 1) * gap_px
+        avail_w = self.width()
+        avail_h = self.height()
+        # Center the grid
+        left = (avail_w - total_w) // 2 if avail_w > total_w else 0
+        top = (avail_h - total_h) // 2 if avail_h > total_h else 0
 
-        # Draw text fields centered
-        margin = 12
-        x0, y0 = rect.x() + margin, rect.y() + margin
-        w, h = rect.width() - 2*margin, rect.height() - 2*margin
+        idx = 0
+        for row in range(self.rows):
+            for col in range(self.cols):
+                if idx >= len(self.labels):
+                    break
+                x = left + col * (label_w_px + gap_px)
+                y = top + row * (label_h_px + gap_px)
+                self.draw_preview_label(qp, x, y, label_w_px, label_h_px, self.labels[idx], idx in self.selected)
+                idx += 1
+
+    def draw_preview_label(self, qp, x, y, w, h, label, is_selected):
+        r = 16
+        pen = QPen(QColor(70, 130, 255) if is_selected else QColor("#CCCCCC"), 2 if is_selected else 1)
+        qp.setPen(pen)
+        qp.setBrush(QColor("#FFFFFF"))
+        qp.drawRoundedRect(x, y, w, h, r, r)
+        margin = int(w * 0.08)
+        x0, y0 = x + margin, y + margin
+        ww, hh = w - 2 * margin, h - 2 * margin
         lines = []
         for key in ["main", "second", "bgn", "eur"]:
             fld = label[key]
             t = fld["text"]
-            if key=="bgn":
+            if key == "bgn":
                 t = t.replace(" лв.", "").replace("лв.", "").strip()
-                if t: t += " лв."
-            if key=="eur":
+                if t:
+                    t += " лв."
+            if key == "eur":
                 t = t.replace("€", "").strip()
-                if t: t = "€" + t
+                if t:
+                    t = "€" + t
             if t:
                 lines.append((t, fld))
         total_h, metrics = 0, []
@@ -58,95 +92,43 @@ class SheetLabel(QWidget):
             fnt.setItalic(field['italic'])
             qp.setFont(fnt)
             fm = qp.fontMetrics()
-            rect_t = fm.boundingRect(0, 0, w, h, field['align']|Qt.TextWordWrap, text)
+            rect_t = fm.boundingRect(0, 0, ww, hh, field['align'] | Qt.TextWordWrap, text)
             metrics.append((rect_t.height(), field, text, fnt))
             total_h += rect_t.height()
-        cy = y0 + (h - total_h) // 2
+        cy = y0 + (hh - total_h) // 2
         for hgt, field, text, fnt in metrics:
             qp.setFont(fnt)
             qp.setPen(QColor(field.get("font_color", "#222")))
-            rect_t = qp.fontMetrics().boundingRect(0, 0, w, hgt, field['align']|Qt.TextWordWrap, text)
+            rect_t = qp.fontMetrics().boundingRect(0, 0, ww, hgt, field['align'] | Qt.TextWordWrap, text)
             draw_rect = rect_t.translated(x0, cy)
-            qp.drawText(draw_rect, field['align']|Qt.TextWordWrap, text)
+            qp.drawText(draw_rect, field['align'] | Qt.TextWordWrap, text)
             cy += hgt
 
-class PreviewPaneWidget(QWidget):
-    label_clicked = pyqtSignal(int, object)        # idx, event
-    label_right_clicked = pyqtSignal(int, object)  # idx, event
+    def mousePressEvent(self, event):
+        if event.button() not in (Qt.LeftButton, Qt.RightButton):
+            return
+        label_w_px = int(self.label_w_mm * PREVIEW_LABEL_SCALE)
+        label_h_px = int(self.label_h_mm * PREVIEW_LABEL_SCALE)
+        gap_px = self.gap
+        total_w = self.cols * label_w_px + (self.cols - 1) * gap_px
+        total_h = self.rows * label_h_px + (self.rows - 1) * gap_px
+        avail_w = self.width()
+        avail_h = self.height()
+        left = (avail_w - total_w) // 2 if avail_w > total_w else 0
+        top = (avail_h - total_h) // 2 if avail_h > total_h else 0
 
-    def __init__(self, labels, rows, cols, label_w_mm, label_h_mm, spacing_px=12, parent=None):
-        super().__init__(parent)
-        self.labels = labels
-        self.rows = rows
-        self.cols = cols
-        self.label_w_mm = label_w_mm
-        self.label_h_mm = label_h_mm
-        self.spacing_px = spacing_px
-        self.selected = [0] if labels else []
-        self._setup_ui()
-
-    def _setup_ui(self):
-        self.grid_widget = QWidget()
-        self.grid_layout = QGridLayout(self.grid_widget)
-        self.grid_layout.setSpacing(self.spacing_px)
-        self.grid_layout.setContentsMargins(10,10,10,10)
-        self.label_widgets = []
-        self._rebuild_grid()
-
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(False)
-        self.scroll_area.setWidget(self.grid_widget)
-        self.scroll_area.setMinimumHeight(250)
-        self.scroll_area.setSizePolicy(self.sizePolicy())
-        vbox = QVBoxLayout(self)
-        vbox.addWidget(self.scroll_area)
-        self.setLayout(vbox)
-
-    def compute_label_px(self):
-        # Target label height in preview, e.g. 80 px, aspect for width
-        target_h = 80
-        aspect = self.label_w_mm / self.label_h_mm if self.label_h_mm else 1.0
-        return int(target_h * aspect), int(target_h)
-
-    def _rebuild_grid(self):
-        # Remove old
-        for i in reversed(range(self.grid_layout.count())):
-            widget = self.grid_layout.itemAt(i).widget()
-            if widget is not None:
-                widget.setParent(None)
-        self.label_widgets = []
         idx = 0
-        label_w_px, label_h_px = self.compute_label_px()
-        for i in range(self.rows):
-            for j in range(self.cols):
-                get_label = lambda idx=idx: self.labels[idx]
-                lbl = SheetLabel(
-                    idx, get_label, selected=(idx in self.selected),
-                    label_w_px=label_w_px, label_h_px=label_h_px
-                )
-                lbl.clicked.connect(lambda label, ev, idx=idx: self.label_clicked.emit(idx, ev))
-                lbl.rightClicked.connect(lambda label, ev, idx=idx: self.label_right_clicked.emit(idx, ev))
-                self.grid_layout.addWidget(lbl, i, j)
-                self.label_widgets.append(lbl)
+        for row in range(self.rows):
+            for col in range(self.cols):
+                if idx >= len(self.labels):
+                    break
+                x = left + col * (label_w_px + gap_px)
+                y = top + row * (label_h_px + gap_px)
+                rect = QRect(x, y, label_w_px, label_h_px)
+                if rect.contains(event.pos()):
+                    if event.button() == Qt.LeftButton:
+                        self.label_clicked.emit(idx, event)
+                    elif event.button() == Qt.RightButton:
+                        self.label_right_clicked.emit(idx, event)
+                    break
                 idx += 1
-        total_w = self.cols * label_w_px + max(0, self.cols-1)*self.spacing_px + 20
-        total_h = self.rows * label_h_px + max(0, self.rows-1)*self.spacing_px + 20
-        self.grid_widget.setFixedSize(total_w, total_h)
-
-    def update_labels(self, labels):
-        self.labels = labels
-        for idx, lbl in enumerate(self.label_widgets):
-            lbl.update()
-
-    def set_selected(self, idxs):
-        self.selected = idxs
-        for i, lbl in enumerate(self.label_widgets):
-            lbl.set_selected(i in idxs)
-
-    def update_calibration(self, rows, cols, label_w_mm, label_h_mm):
-        self.rows = rows
-        self.cols = cols
-        self.label_w_mm = label_w_mm
-        self.label_h_mm = label_h_mm
-        self._rebuild_grid()
-
