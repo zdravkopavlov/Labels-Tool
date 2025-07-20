@@ -1,21 +1,19 @@
-import sys, os
-import json
+import sys, os, json
 from functools import partial
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QComboBox,
-    QButtonGroup, QToolButton, QSizePolicy, QGridLayout, QMenu, QColorDialog, QWidgetAction, QScrollArea
+    QButtonGroup, QToolButton, QGridLayout, QMenu, QColorDialog, QWidgetAction, QScrollArea,
+    QFileDialog, QMessageBox, QSizePolicy, QSpacerItem
 )
-from PyQt5.QtGui import QFont, QFontDatabase, QPainter, QPen, QColor, QIcon
+from PyQt5.QtGui import QFont, QFontDatabase, QIcon, QPainter, QPagedPaintDevice, QPdfWriter, QColor, QPen
+from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
 
 from currency_manager import CurrencyManager
 from session_manager import SessionManager
 
 MM_TO_PX = 72 / 25.4
-DEFAULT_PREVIEW_SCALE = 1
-MIN_PREVIEW_SCALE = 0.5
-MAX_GRID_HEIGHT = 1000  # px
 
 def sheet_settings_path():
     from pathlib import Path
@@ -52,44 +50,40 @@ CONV_MODES = [
 class SheetLabel(QWidget):
     clicked = pyqtSignal(object, object)
     rightClicked = pyqtSignal(object, object)
-    def __init__(self, idx, get_label, selected=False, scale=1.0, label_w_px=1, label_h_px=1):
+    def __init__(self, idx, get_label, selected=False, label_w_px=150, label_h_px=60):
         super().__init__()
         self.idx = idx
         self.get_label = get_label
         self.selected = selected
-        self.scale = scale
-        self.label_w_px = label_w_px
-        self.label_h_px = label_h_px
-        self.setFixedSize(int(self.label_w_px*self.scale+20), int(self.label_h_px*self.scale+20))
-        self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumSize(label_w_px, label_h_px)
+        self.setMaximumSize(label_w_px, label_h_px)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
     def set_selected(self, on=True):
         self.selected = on
         self.update()
+
     def mousePressEvent(self, ev):
         if ev.button() == Qt.LeftButton:
             self.clicked.emit(self, ev)
         elif ev.button() == Qt.RightButton:
             self.rightClicked.emit(self, ev)
-    def update_label_size(self, label_w_px, label_h_px, scale):
-        self.label_w_px = label_w_px
-        self.label_h_px = label_h_px
-        self.scale = scale
-        self.setFixedSize(int(self.label_w_px*self.scale+20), int(self.label_h_px*self.scale+20))
-        self.update()
+
     def paintEvent(self, event):
         label = self.get_label()
-        s = self.scale
-        w_px = self.label_w_px
-        h_px = self.label_h_px
         qp = QPainter(self)
         qp.setRenderHint(QPainter.Antialiasing)
-        qp.setPen(QPen(QColor("#2c7ee9") if self.selected else QColor("#cccccc"), 2*int(s) if self.selected else 1))
+        rect = self.rect().adjusted(3,3,-3,-3)
+        qp.setPen(QPen(QColor("#2c7ee9") if self.selected else QColor("#cccccc"), 2 if self.selected else 1))
         qp.setBrush(QColor(label["main"]["bg_color"]))
-        qp.drawRoundedRect(int(6*s), int(6*s), int(w_px*s), int(h_px*s), 12*s, 12*s)
-        margin = int(16*s)
-        x0, y0 = int(6*s+margin), int(6*s+margin)
-        w, h = int(w_px*s-2*margin), int(h_px*s-2*margin)
+        qp.drawRoundedRect(rect, 12, 12)
+
+        # Draw text fields centered
+        margin = 12
+        x0, y0 = rect.x() + margin, rect.y() + margin
+        w, h = rect.width() - 2*margin, rect.height() - 2*margin
         lines = []
         for key in ["main", "second", "bgn", "eur"]:
             fld = label[key]
@@ -104,29 +98,26 @@ class SheetLabel(QWidget):
                 lines.append((t, fld))
         total_h, metrics = 0, []
         for text, field in lines:
-            fnt = QFont(field['font'], int(field['size']*s))
+            fnt = QFont(field['font'], int(field['size']))
             fnt.setBold(field['bold'])
             fnt.setItalic(field['italic'])
             qp.setFont(fnt)
             fm = qp.fontMetrics()
-            rect = fm.boundingRect(0, 0, w, h, field['align']|Qt.TextWordWrap, text)
-            metrics.append((rect.height(), field, text, fnt))
-            total_h += rect.height()
-        cy = y0 + (h-total_h)//2
+            rect_t = fm.boundingRect(0, 0, w, h, field['align']|Qt.TextWordWrap, text)
+            metrics.append((rect_t.height(), field, text, fnt))
+            total_h += rect_t.height()
+        cy = y0 + (h - total_h) // 2
         for hgt, field, text, fnt in metrics:
             qp.setFont(fnt)
             qp.setPen(QColor(field.get("font_color", "#222")))
-            bg = field.get("bg_color","#fff")
-            qp.setBrush(QColor(bg))
-            rect = qp.boundingRect(x0, cy, w, hgt, field['align']|Qt.TextWordWrap, text)
-            qp.fillRect(rect, QColor(bg))
-            qp.drawText(rect, field['align']|Qt.TextWordWrap, text)
+            rect_t = qp.fontMetrics().boundingRect(0, 0, w, hgt, field['align']|Qt.TextWordWrap, text)
+            draw_rect = rect_t.translated(x0, cy)
+            qp.drawText(draw_rect, field['align']|Qt.TextWordWrap, text)
             cy += hgt
-
 class LabelSheetEditor(QWidget):
     def __init__(self, font_list):
         super().__init__()
-        self.setWindowTitle("Строймаркет Цаков - Етикетен редактор")
+        self.setWindowTitle("Строймаркет Цаков – Етикетен инструмент – Версия: 3.0.0")
         self.font_list = font_list
 
         self.sheet_settings = self.load_sheet_settings()
@@ -134,17 +125,19 @@ class LabelSheetEditor(QWidget):
         self.cols = self.sheet_settings.get('cols', 3)
         self.label_w = self.sheet_settings.get('label_w', 63.5)
         self.label_h = self.sheet_settings.get('label_h', 38.1)
-
+        self.margin_top = self.sheet_settings.get('margin_top', 0)
+        self.margin_left = self.sheet_settings.get('margin_left', 0)
+        self.spacing_x = self.sheet_settings.get('spacing_x', 0)
+        self.spacing_y = self.sheet_settings.get('spacing_y', 0)
         self.label_w_px = int(self.label_w * MM_TO_PX)
         self.label_h_px = int(self.label_h * MM_TO_PX)
-        self.preview_scale = self.compute_preview_scale()
+
         self.labels = [blank_label() for _ in range(self.rows*self.cols)]
         self.clipboard = None
         self.clipboard_style = None
         self.selected = [0] if self.labels else []
         self.active_field = "main"
 
-        # --- Build the UI widgets first (so self.field_inputs exists!) ---
         main_h = QHBoxLayout(self)
         left_panel = QVBoxLayout()
 
@@ -240,7 +233,7 @@ class LabelSheetEditor(QWidget):
         self.print_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.print_btn.setFixedHeight(36)
         self.print_btn.setToolTip("Печат на етикетите")
-        btn_row.addWidget(self.print_btn)
+        self.print_btn.clicked.connect(self.do_print)
 
         self.pdf_btn = QToolButton()
         self.pdf_btn.setIcon(QIcon(resource_path("export_as_pdf.svg")))
@@ -248,12 +241,14 @@ class LabelSheetEditor(QWidget):
         self.pdf_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.pdf_btn.setFixedHeight(36)
         self.pdf_btn.setToolTip("Експортиране като PDF")
-        btn_row.addWidget(self.pdf_btn)
+        self.pdf_btn.clicked.connect(self.do_export_pdf)
 
+        btn_row.addWidget(self.print_btn)
+        btn_row.addWidget(self.pdf_btn)
         left_panel.addLayout(btn_row)
         main_h.addLayout(left_panel, 0)
 
-        # --- Right pane: SESSION TOOLBAR + GRID ---
+        # --- Right pane: SESSION TOOLBAR + PREVIEW ---
         right_panel = QVBoxLayout()
         session_row = QHBoxLayout()
         self.save_sess_btn = QToolButton()
@@ -267,32 +262,51 @@ class LabelSheetEditor(QWidget):
         self.load_sess_btn.setToolTip("Зареждане на сесия от файл")
         self.load_sess_btn.clicked.connect(self.load_session_as)
         session_row.addWidget(self.load_sess_btn)
-
         session_row.addStretch(1)
         right_panel.addLayout(session_row)
         right_panel.addWidget(QLabel("  Кликни за да избереш. Кликни с десен бутон за меню."))
 
+        # --- Scrollable grid for the label sheet preview ---
+        # grid_widget is fixed-size, never stretches; scroll area expands
         self.grid_widget = QWidget()
-        self.grid = QGridLayout(self.grid_widget)
-        self.grid.setSpacing(18)
+        self.grid_layout = QGridLayout(self.grid_widget)
+        self.grid_layout.setSpacing(int(self.spacing_y * MM_TO_PX) if self.spacing_y else 10)
+        self.grid_layout.setContentsMargins(10,10,10,10)
+        self.label_widgets = []
+        self.build_label_grid()
+
         self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidgetResizable(False)
         self.scroll_area.setWidget(self.grid_widget)
-        right_panel.addWidget(self.scroll_area)
-        reload_btn = QToolButton()
-        reload_btn.setText("Обнови от калибрация")
-        reload_btn.clicked.connect(self.reload_from_calibration)
-        right_panel.addWidget(reload_btn)
-        right_panel.addStretch(1)
+        self.scroll_area.setMinimumHeight(250)
+        self.scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        right_panel.addWidget(self.scroll_area, stretch=1)
+
+        # --- Floating refresh button (top-right of preview pane) ---
+        # Add after the scroll area is created
         main_h.addLayout(right_panel, 1)
+        self.setLayout(main_h)
+
+        # Now add floating button
+        self.refresh_btn = QToolButton(self)
+        self.refresh_btn.setIcon(QIcon(resource_path("refresh.svg")))
+        self.refresh_btn.setIconSize(QSize(36, 36))
+        self.refresh_btn.setStyleSheet(
+            "QToolButton { background: rgba(255,255,255,0.82); border-radius: 18px; border: 1px solid #b4b4b4; }"
+            "QToolButton:hover { background: #e2f1ff; }"
+        )
+        self.refresh_btn.setToolTip("Обнови от калибрация")
+        self.refresh_btn.clicked.connect(self.reload_from_calibration)
+        self.refresh_btn.raise_()
+
+        # Make sure button is always in top-right of preview (right of scroll area)
+        self.resizeEvent(None)
 
         # --- Now managers (order matters!) ---
         self.currency_manager = CurrencyManager(self.field_inputs['bgn'], self.field_inputs['eur'])
         self.session_manager = SessionManager(self)
 
         # --- Signals, mode restore, etc ---
-        self.build_label_grid()
-
         for key, widget in self.field_inputs.items():
             if isinstance(widget, QTextEdit):
                 widget.textChanged.connect(self.on_editor_changed)
@@ -323,6 +337,47 @@ class LabelSheetEditor(QWidget):
         self.session_manager.load_session()
         self.ensure_at_least_one_selected()
 
+    def resizeEvent(self, event):
+        # Position floating refresh_btn at top-right of preview pane
+        if hasattr(self, 'refresh_btn') and hasattr(self, 'scroll_area'):
+            sa = self.scroll_area
+            btn = self.refresh_btn
+            margin = 16
+            x = sa.geometry().right() - btn.width() - margin
+            y = sa.geometry().top() + margin
+            btn.move(x, y)
+        if event:
+            super().resizeEvent(event)
+
+    def build_label_grid(self):
+        # Remove all widgets
+        for i in reversed(range(self.grid_layout.count())):
+            widget = self.grid_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.setParent(None)
+        self.label_widgets = []
+        idx = 0
+        for i in range(self.rows):
+            for j in range(self.cols):
+                get_label = lambda idx=idx: self.labels[idx]
+                lbl = SheetLabel(
+                    idx, get_label, selected=(idx in self.selected),
+                    label_w_px=self.label_w_px, label_h_px=self.label_h_px
+                )
+                lbl.clicked.connect(self.on_label_clicked)
+                lbl.rightClicked.connect(self.on_label_right_click)
+                self.grid_layout.addWidget(lbl, i, j)
+                self.label_widgets.append(lbl)
+                idx += 1
+        # Set fixed size for grid_widget based on calibration
+        total_w = self.cols * self.label_w_px + max(0, self.cols-1) * (int(self.spacing_x * MM_TO_PX) if self.spacing_x else 10) + 20
+        total_h = self.rows * self.label_h_px + max(0, self.rows-1) * (int(self.spacing_y * MM_TO_PX) if self.spacing_y else 10) + 20
+        self.grid_widget.setFixedSize(total_w, total_h)
+        self.update_selection()
+    def update_selection(self):
+        for i, lbl in enumerate(self.label_widgets):
+            lbl.set_selected(i in self.selected)
+
     def set_conv_dropdown(self, mode):
         for i, (_, key) in enumerate(CONV_MODES):
             if key == mode:
@@ -343,55 +398,18 @@ class LabelSheetEditor(QWidget):
         self.set_conv_dropdown(self.session_manager.last_mode)
         self.currency_manager.set_mode(self.session_manager.last_mode)
 
-    def compute_preview_scale(self):
-        total_label_height = self.rows * self.label_h_px + self.rows * 18
-        scale = min(DEFAULT_PREVIEW_SCALE, MAX_GRID_HEIGHT / total_label_height)
-        return max(MIN_PREVIEW_SCALE, scale)
-
-    def load_sheet_settings(self):
-        path = sheet_settings_path()
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                return data.get("params", {})
-            except Exception:
-                return {}
-        return {}
-
-    def build_label_grid(self):
-        while self.grid.count():
-            item = self.grid.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        self.label_widgets = []
-        self.preview_scale = self.compute_preview_scale()
-        idx = 0
-        for i in range(self.rows):
-            for j in range(self.cols):
-                get_label = lambda idx=idx: self.labels[idx]
-                lbl = SheetLabel(idx, get_label, selected=(idx in self.selected),
-                                 scale=self.preview_scale, label_w_px=self.label_w_px, label_h_px=self.label_h_px)
-                lbl.clicked.connect(self.on_label_clicked)
-                lbl.rightClicked.connect(self.on_label_right_click)
-                self.grid.addWidget(lbl, i, j)
-                self.label_widgets.append(lbl)
-                idx += 1
-        self.ensure_at_least_one_selected()
-
     def reload_from_calibration(self):
         settings = self.load_sheet_settings()
-        rows = settings.get('rows', 3)
-        cols = settings.get('cols', 3)
-        label_w = settings.get('label_w', 63.5)
-        label_h = settings.get('label_h', 38.1)
-        self.label_w_px = int(label_w * MM_TO_PX)
-        self.label_h_px = int(label_h * MM_TO_PX)
-        self.rows = rows
-        self.cols = cols
-        self.label_w = label_w
-        self.label_h = label_h
+        self.rows = settings.get('rows', 3)
+        self.cols = settings.get('cols', 3)
+        self.label_w = settings.get('label_w', 63.5)
+        self.label_h = settings.get('label_h', 38.1)
+        self.margin_top = settings.get('margin_top', 0)
+        self.margin_left = settings.get('margin_left', 0)
+        self.spacing_x = settings.get('spacing_x', 0)
+        self.spacing_y = settings.get('spacing_y', 0)
+        self.label_w_px = int(self.label_w * MM_TO_PX)
+        self.label_h_px = int(self.label_h * MM_TO_PX)
         label_count = self.rows * self.cols
         if len(self.labels) < label_count:
             for _ in range(label_count - len(self.labels)):
@@ -406,8 +424,7 @@ class LabelSheetEditor(QWidget):
     def ensure_at_least_one_selected(self):
         if not self.selected or self.selected[0] >= len(self.label_widgets):
             self.selected = [0] if self.label_widgets else []
-        for i, lbl in enumerate(self.label_widgets):
-            lbl.set_selected(i in self.selected)
+        self.update_selection()
 
     def eventFilter(self, obj, ev):
         if ev.type() == ev.FocusIn:
@@ -424,20 +441,14 @@ class LabelSheetEditor(QWidget):
             if idx in self.selected:
                 if len(self.selected) > 1:
                     self.selected.remove(idx)
-                    label.set_selected(False)
             else:
                 self.selected.append(idx)
-                label.set_selected(True)
         elif event.modifiers() & Qt.ShiftModifier and self.selected:
             start, end = min(self.selected[0], idx), max(self.selected[0], idx)
-            for i in range(start, end+1):
-                if i not in self.selected:
-                    self.selected.append(i)
-                    self.label_widgets[i].set_selected(True)
+            self.selected = list(range(start, end+1))
         else:
-            for i, lbl in enumerate(self.label_widgets):
-                lbl.set_selected(i == idx)
             self.selected = [idx]
+        self.update_selection()
         self.update_edit_panel_from_selection()
         self.save_session()
 
@@ -466,9 +477,8 @@ class LabelSheetEditor(QWidget):
                         for sk, vv in self.clipboard_style[k].items():
                             self.labels[idx2][k][sk] = vv
             self.update_edit_panel_from_selection()
-            for lbl in self.label_widgets:
-                lbl.update()
         self.save_session()
+        self.update_selection()
 
     def update_edit_panel_from_selection(self):
         sel = self.selected
@@ -545,9 +555,8 @@ class LabelSheetEditor(QWidget):
             val = widget.text()
         for idx in sel:
             self.labels[idx][key]["text"] = val
-        for lbl in self.label_widgets:
-            lbl.update()
         self.save_session()
+        self.update_selection()
 
     def set_font_family(self, fontname):
         sel = self.selected
@@ -556,10 +565,9 @@ class LabelSheetEditor(QWidget):
         k = self.active_field
         for idx in sel:
             self.labels[idx][k]["font"] = fontname
-        for lbl in self.label_widgets:
-            lbl.update()
         self.update_toolbar_from_field()
         self.save_session()
+        self.update_selection()
 
     def set_font_size(self, size):
         sel = self.selected
@@ -568,10 +576,9 @@ class LabelSheetEditor(QWidget):
         k = self.active_field
         for idx in sel:
             self.labels[idx][k]["size"] = size
-        for lbl in self.label_widgets:
-            lbl.update()
         self.update_toolbar_from_field()
         self.save_session()
+        self.update_selection()
 
     def set_bold(self, checked):
         sel = self.selected
@@ -580,10 +587,9 @@ class LabelSheetEditor(QWidget):
         k = self.active_field
         for idx in sel:
             self.labels[idx][k]["bold"] = checked
-        for lbl in self.label_widgets:
-            lbl.update()
         self.update_toolbar_from_field()
         self.save_session()
+        self.update_selection()
 
     def set_italic(self, checked):
         sel = self.selected
@@ -592,10 +598,9 @@ class LabelSheetEditor(QWidget):
         k = self.active_field
         for idx in sel:
             self.labels[idx][k]["italic"] = checked
-        for lbl in self.label_widgets:
-            lbl.update()
         self.update_toolbar_from_field()
         self.save_session()
+        self.update_selection()
 
     def set_alignment(self, align_value):
         sel = self.selected
@@ -604,10 +609,9 @@ class LabelSheetEditor(QWidget):
         k = self.active_field
         for idx in sel:
             self.labels[idx][k]["align"] = align_value
-        for lbl in self.label_widgets:
-            lbl.update()
         self.update_toolbar_from_field()
         self.save_session()
+        self.update_selection()
 
     def adjust_font_size(self, delta):
         try:
@@ -625,10 +629,9 @@ class LabelSheetEditor(QWidget):
         k = self.active_field
         for idx in sel:
             self.labels[idx][k][prop] = val
-        for lbl in self.label_widgets:
-            lbl.update()
         self.update_toolbar_from_field()
         self.save_session()
+        self.update_selection()
 
     def show_font_color_palette(self):
         self.show_color_palette("font_color")
@@ -667,6 +670,115 @@ class LabelSheetEditor(QWidget):
         if color.isValid():
             self.set_field_color("bg_color", color.name())
 
+    def do_print(self):
+        printer = QPrinter(QPrinter.HighResolution)
+        printer.setPageSize(QPrinter.A4)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec_() == QPrintDialog.Accepted:
+            painter = QPainter(printer)
+            self.render_sheet(painter, printer.resolution())
+            painter.end()
+
+    def do_export_pdf(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Запази PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+        pdf = QPdfWriter(path)
+        pdf.setPageSize(QPagedPaintDevice.A4)
+        pdf.setResolution(300)
+        painter = QPainter(pdf)
+        self.render_sheet(painter, 300)
+        painter.end()
+        QMessageBox.information(self, "Успех", "PDF файлът е запазен успешно.")
+
+    def render_sheet(self, qp, dpi):
+        # Read calibration
+        settings = self.load_sheet_settings()
+        rows = settings.get('rows', 3)
+        cols = settings.get('cols', 3)
+        label_w = settings.get('label_w', 63.5)
+        label_h = settings.get('label_h', 38.1)
+        margin_left = settings.get('margin_left', 0)
+        margin_top = settings.get('margin_top', 0)
+        spacing_x = settings.get('spacing_x', 0)
+        spacing_y = settings.get('spacing_y', 0)
+        sheet_w = settings.get('sheet_w', 210)
+        sheet_h = settings.get('sheet_h', 297)
+
+        px_per_mm = dpi / 25.4
+        sheet_w_px = int(sheet_w * px_per_mm)
+        sheet_h_px = int(sheet_h * px_per_mm)
+        label_w_px = int(label_w * px_per_mm)
+        label_h_px = int(label_h * px_per_mm)
+        margin_left_px = int(margin_left * px_per_mm)
+        margin_top_px = int(margin_top * px_per_mm)
+        spacing_x_px = int(spacing_x * px_per_mm)
+        spacing_y_px = int(spacing_y * px_per_mm)
+
+        qp.setRenderHint(QPainter.Antialiasing)
+        qp.setBrush(Qt.white)
+        qp.setPen(Qt.NoPen)
+        qp.drawRect(0, 0, sheet_w_px, sheet_h_px)
+
+        idx = 0
+        for row in range(rows):
+            for col in range(cols):
+                if idx >= len(self.labels):
+                    break
+                x = margin_left_px + col * (label_w_px + spacing_x_px)
+                y = margin_top_px + row * (label_h_px + spacing_y_px)
+                self.draw_label_print(qp, x, y, label_w_px, label_h_px, self.labels[idx])
+                idx += 1
+
+    def draw_label_print(self, qp, x, y, w, h, label):
+        qp.save()
+        qp.setPen(QPen(QColor("#2c7ee9"), 1))
+        qp.setBrush(QColor(label["main"]["bg_color"]))
+        qp.drawRoundedRect(x, y, w, h, 12, 12)
+        margin = int(12)
+        x0, y0 = x+margin, y+margin
+        ww, hh = w-2*margin, h-2*margin
+        lines = []
+        for key in ["main", "second", "bgn", "eur"]:
+            fld = label[key]
+            t = fld["text"]
+            if key=="bgn":
+                t = t.replace(" лв.", "").replace("лв.", "").strip()
+                if t: t += " лв."
+            if key=="eur":
+                t = t.replace("€", "").strip()
+                if t: t = "€" + t
+            if t:
+                lines.append((t, fld))
+        total_h, metrics = 0, []
+        for text, field in lines:
+            fnt = QFont(field['font'], int(field['size']))
+            fnt.setBold(field['bold'])
+            fnt.setItalic(field['italic'])
+            qp.setFont(fnt)
+            fm = qp.fontMetrics()
+            rect_t = fm.boundingRect(0, 0, ww, hh, field['align']|Qt.TextWordWrap, text)
+            metrics.append((rect_t.height(), field, text, fnt))
+            total_h += rect_t.height()
+        cy = y0 + (hh - total_h) // 2
+        for hgt, field, text, fnt in metrics:
+            qp.setFont(fnt)
+            qp.setPen(QColor(field.get("font_color", "#222")))
+            qp.drawText(x0, cy + hgt - 4, text)
+            cy += hgt
+        qp.restore()
+
+    def load_sheet_settings(self):
+        path = sheet_settings_path()
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("params", {})
+            except Exception:
+                return {}
+        return {}
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     FONT_DB = QFontDatabase()
@@ -681,8 +793,6 @@ if __name__ == "__main__":
     if not FONT_LIST:
         FONT_LIST = ["Arial"]
     win = LabelSheetEditor(FONT_LIST)
-    win.resize(1350, 1000)
+    win.resize(1550, 1050)
     win.show()
     sys.exit(app.exec_())
-
-
