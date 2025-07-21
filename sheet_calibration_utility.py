@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox,
     QSpinBox, QDoubleSpinBox, QCheckBox, QSizePolicy, QPushButton, QComboBox
 )
-from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPainterPath
+from PyQt5.QtGui import QPainter, QColor, QPen, QFont, QPainterPath, QIcon
 from PyQt5.QtCore import Qt
 
 MM_TO_PX = 72 / 25.4
@@ -79,7 +79,7 @@ class SheetPreview(QWidget):
         # --- Scaling ---
         if getattr(self, 'rendering_for_print', False):
             scale = w / (page_w_mm * MM_TO_PX)
-            scale *= p.get('user_scale_factor', 1.0)   # <--- ADD THIS LINE
+            scale *= p.get('user_scale_factor', 1.0)
             offset_x = 0
             offset_y = 0
         else:
@@ -88,10 +88,9 @@ class SheetPreview(QWidget):
                 (w - 2*margin_px) / (page_w_mm * MM_TO_PX),
                 (h - 2*margin_px) / (page_h_mm * MM_TO_PX)
             )
-            scale *= p.get('user_scale_factor', 1.0)   # <--- ADD THIS LINE
+            scale *= p.get('user_scale_factor', 1.0)
             offset_x = (w - page_w_mm * MM_TO_PX * scale) / 2
             offset_y = (h - page_h_mm * MM_TO_PX * scale) / 2
-
 
         def mm_to_px(x_mm, y_mm):
             return (
@@ -207,7 +206,6 @@ class SheetPreview(QWidget):
                     crosshair_len = sq_size_px * 0.7
                     painter.drawLine(int(cx - crosshair_len/2), int(cy), int(cx + crosshair_len/2), int(cy))
                     painter.drawLine(int(cx), int(cy - crosshair_len/2), int(cx), int(cy + crosshair_len/2))
-                    # Make the "10 mm" text scale with print/preview
                     if getattr(self, 'rendering_for_print', False):
                         font_size_pt = max(int(22 * (1/scale)), 12)
                     else:
@@ -239,6 +237,7 @@ class SheetPreview(QWidget):
                     x, y = mm_to_px(x_mm, y_mm)
                     painter.drawLine(int(x - ch_len/2), int(y), int(x + ch_len/2), int(y))
                     painter.drawLine(int(x), int(y - ch_len/2), int(x), int(y + ch_len/2))
+
 class CalibrationTab(QWidget):
     def __init__(self):
         super().__init__()
@@ -256,12 +255,11 @@ class CalibrationTab(QWidget):
         if loaded:
             self.params.update(loaded.get("params", {}))
             self.toggles.update(loaded.get("toggles", {}))
-            
         if "user_scale_factor" not in self.params:
             self.params["user_scale_factor"] = 1.0
-        
         self.init_ui()
         self.update_helper_labels()
+        loaded = load_sheet_settings()
 
     def default_params(self):
         return {
@@ -274,10 +272,14 @@ class CalibrationTab(QWidget):
         }
 
     def save_settings(self):
-        save_sheet_settings({
-            "params": self.params,
-            "toggles": self.toggles,
-        })
+        # Load any existing settings, or start with empty dict
+        current = load_sheet_settings() or {}
+        # Update just the keys you manage
+        current["params"] = self.params
+        current["toggles"] = self.toggles
+        current["skip_hw_margin"] = self.chk_skip_hw_margin.isChecked()
+        # Save all keys (including unknown extras)
+        save_sheet_settings(current)
 
     def update_helper_labels(self):
         offset_left = self.params['hw_left'] + self.params['sheet_left']
@@ -340,8 +342,7 @@ class CalibrationTab(QWidget):
             l_sheet.addLayout(pair_layout)
             spin.valueChanged.connect(lambda val, k=key: self.update_param(k, float(val)))
         gb_sheet.setLayout(l_sheet)
-        controls.addWidget(gb_sheet)        
-
+        controls.addWidget(gb_sheet)
 
         # 4. Offset reporting labels
         self.lbl_left_offset = QLabel()
@@ -389,30 +390,26 @@ class CalibrationTab(QWidget):
         gb_vis = QGroupBox("Визуални помощници")
         l_vis = QVBoxLayout(gb_vis)
         self.chk_ruler = QCheckBox("Линийка"); self.chk_ruler.setChecked(self.toggles['ruler'])
-        #self.chk_gray = QCheckBox("Покажи сива основа")
         self.chk_hw_margin = QCheckBox("Рамка на принтера"); self.chk_hw_margin.setChecked(self.toggles['show_hw_margin'])
         self.chk_grid = QCheckBox("Етикети"); self.chk_grid.setChecked(self.toggles['grid'])
         self.chk_crosses = QCheckBox("Кръстчета"); self.chk_crosses.setChecked(self.toggles['crosshairs'])
         self.chk_cal_square = QCheckBox("Калибрационен квадрат (10мм)"); self.chk_cal_square.setChecked(self.toggles['cal_square'])
-        # Order here as you wish
         l_vis.addWidget(self.chk_ruler)
-        #l_vis.addWidget(self.chk_gray)
         l_vis.addWidget(self.chk_hw_margin)
         l_vis.addWidget(self.chk_grid)
         l_vis.addWidget(self.chk_crosses)
         l_vis.addWidget(self.chk_cal_square)
         controls.addWidget(gb_vis)
 
-        # Connect toggles
         self.chk_ruler.stateChanged.connect(lambda _: self.toggle_overlay('ruler'))
         self.chk_hw_margin.stateChanged.connect(lambda _: self.toggle_overlay('show_hw_margin'))
         self.chk_grid.stateChanged.connect(lambda _: self.toggle_overlay('grid'))
         self.chk_crosses.stateChanged.connect(lambda _: self.toggle_overlay('crosshairs'))
         self.chk_cal_square.stateChanged.connect(lambda _: self.toggle_overlay('cal_square'))
-        # Note: "Покажи сива основа" does nothing except for preview; no need to connect
 
         controls.addSpacing(12)
 
+        # Correction group (expected/measured width and scaling)
         gb_corr = QGroupBox("Принтерна корекция (скалиране)")
         l_corr = QHBoxLayout(gb_corr)
         expected_width = self.params['cols'] * self.params['label_w'] + (self.params['cols']-1) * self.params['col_gap']
@@ -425,7 +422,6 @@ class CalibrationTab(QWidget):
         lbl_exp = QLabel("Очаквана широчина (mm):")
         l_corr.addWidget(lbl_exp)
         l_corr.addWidget(self.sp_expected_w)
-
         self.sp_measured_w = QDoubleSpinBox()
         self.sp_measured_w.setRange(10, 400)
         self.sp_measured_w.setDecimals(2)
@@ -434,7 +430,6 @@ class CalibrationTab(QWidget):
         lbl_meas = QLabel("Измерена широчина (mm):")
         l_corr.addWidget(lbl_meas)
         l_corr.addWidget(self.sp_measured_w)
-
 
         self.lbl_corr_factor = QLabel("Корекция: 100%")
         l_corr.addWidget(self.lbl_corr_factor)
@@ -445,7 +440,7 @@ class CalibrationTab(QWidget):
             factor = self.params["user_scale_factor"]
             self.sp_measured_w.setValue(exp / factor)
             self.lbl_corr_factor.setText(f"Корекция: {factor*100:.2f}%")
-            
+
         help_note = QLabel(
             "<b>Съвет:</b> Измерете с линийка реалната широчина на отпечатаните етикети и я въведете тук.<br>"
             "Инструментът автоматично ще коригира мащаба на печата за максимална точност."
@@ -453,6 +448,12 @@ class CalibrationTab(QWidget):
         help_note.setWordWrap(True)
         help_note.setStyleSheet("color: #333; font-size:11px; padding-bottom: 6px;")
         controls.addWidget(help_note)
+
+        # HW margin skip checkbox, correctly placed
+        self.chk_skip_hw_margin = QCheckBox("Пропусни хардуерния марж при печат/PDF (за печат без бели полета)")
+        self.chk_skip_hw_margin.setChecked(False)
+        controls.addWidget(self.chk_skip_hw_margin)
+        self.chk_skip_hw_margin.stateChanged.connect(lambda _: self.save_settings())
 
         def update_corr_factor():
             exp = self.sp_expected_w.value()
@@ -467,14 +468,16 @@ class CalibrationTab(QWidget):
             self.preview.update()
             self.save_settings()
         self.sp_measured_w.valueChanged.connect(update_corr_factor)
-        self.update_corr_factor = update_corr_factor  # To call later        
+        self.update_corr_factor = update_corr_factor
 
-        # 8. Both buttons
         self.btn_calib_print = QPushButton("Калибриращ печат (сив фон)")
-        self.btn_calib_print.setMaximumHeight(32)
+        self.btn_calib_print.setMaximumHeight(80)
+        self.btn_calib_print.setIcon(QIcon(os.path.join(os.path.dirname(__file__), "./resources/background.svg")))
         self.btn_calib_print.clicked.connect(self.print_calibration)
+
         self.btn_print = QPushButton("Печат – Визуални помощници")
         self.btn_print.setMaximumHeight(32)
+        self.btn_print.setIcon(QIcon(os.path.join(os.path.dirname(__file__), "./resources/guides.svg")))
         self.btn_print.clicked.connect(self.print_sheet)
         btns_h = QHBoxLayout()
         btns_h.addWidget(self.btn_calib_print)
@@ -482,19 +485,17 @@ class CalibrationTab(QWidget):
         controls.addLayout(btns_h)
 
         controls.addStretch(1)
-
         main_h.addLayout(controls, 0)
 
-        # --- Printer scaling correction group ---
-
-
-
-        # --- Add padding for the preview area ---
         preview_pad = QVBoxLayout()
-        preview_pad.setContentsMargins(3, 3, 3, 3)  # (left, top, right, bottom) in px.
+        preview_pad.setContentsMargins(3, 3, 3, 3)
         self.preview = SheetPreview(self.params, self.toggles)
         preview_pad.addWidget(self.preview)
         main_h.addLayout(preview_pad, 1)
+
+        loaded = load_sheet_settings()
+        if loaded and "skip_hw_margin" in loaded:
+            self.chk_skip_hw_margin.setChecked(loaded["skip_hw_margin"])
 
     def update_param(self, key, value):
         self.params[key] = value
@@ -504,7 +505,6 @@ class CalibrationTab(QWidget):
         if hasattr(self, "sp_expected_w"):
             exp = self.params['cols'] * self.params['label_w'] + (self.params['cols']-1) * self.params['col_gap']
             self.sp_expected_w.setValue(exp)
-            # Only update measured if user hasn't changed it yet
             if abs(self.sp_measured_w.value() - self.sp_expected_w.value()) < 0.1:
                 self.sp_measured_w.setValue(exp)
             self.update_corr_factor()
@@ -530,6 +530,8 @@ class CalibrationTab(QWidget):
         self.preview.rendering_for_print = True
         printer.print_sheet(self.preview, self)
         self.preview.rendering_for_print = False
+
+    
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

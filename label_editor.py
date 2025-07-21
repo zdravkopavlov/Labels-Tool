@@ -30,11 +30,12 @@ def blank_label():
 
 def load_sheet_settings():
     path = sheet_settings_path()
+    print("Loading sheet settings from:", path)
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return data.get("params", {})
+            return data  # <-- Return the whole dict, not just data.get("params", {})
         except Exception:
             return {}
     return {}
@@ -46,10 +47,11 @@ class LabelSheetEditor(QWidget):
         self.font_list = font_list
 
         self.sheet_settings = load_sheet_settings()
-        self.rows = self.sheet_settings.get('rows', 3)
-        self.cols = self.sheet_settings.get('cols', 3)
-        self.label_w_mm = self.sheet_settings.get('label_w', 63.5)
-        self.label_h_mm = self.sheet_settings.get('label_h', 38.1)
+        params = self.sheet_settings.get('params', {})
+        self.rows = params.get('rows', 3)
+        self.cols = params.get('cols', 3)
+        self.label_w_mm = params.get('label_w', 63.5)
+        self.label_h_mm = params.get('label_h', 38.1)
         self.label_aspect = self.label_w_mm / self.label_h_mm if self.label_h_mm else 1.0
 
         self.labels = [blank_label() for _ in range(self.rows*self.cols)]
@@ -248,21 +250,31 @@ class LabelSheetEditor(QWidget):
 
     def render_sheet(self, qp, dpi):
         settings = load_sheet_settings()
-        hw_left = float(settings.get('hw_left', 0))
-        hw_top = float(settings.get('hw_top', 0))
-        hw_right = float(settings.get('hw_right', 0))
-        hw_bottom = float(settings.get('hw_bottom', 0))
-        sheet_left = float(settings.get('sheet_left', 0))
-        sheet_top = float(settings.get('sheet_top', 0))
-        label_w = float(settings.get('label_w', 63.5))
-        label_h = float(settings.get('label_h', 38.1))
-        col_gap = float(settings.get('col_gap', 0))
-        row_gap = float(settings.get('row_gap', 0))
-        rows = int(settings.get('rows', 3))
-        cols = int(settings.get('cols', 3))
-        scale_correction = float(settings.get('user_scale_factor', 1.0))
-        page_w = float(settings.get('page_w', 210))
-        page_h = float(settings.get('page_h', 297))
+        params = settings.get("params", {})
+        hw_left = float(params.get('hw_left', 0))
+        hw_top = float(params.get('hw_top', 0))
+        hw_right = float(params.get('hw_right', 0))
+        hw_bottom = float(params.get('hw_bottom', 0))
+        sheet_left = float(params.get('sheet_left', 0))
+        sheet_top = float(params.get('sheet_top', 0))
+        label_w = float(params.get('label_w', 63.5))
+        label_h = float(params.get('label_h', 38.1))
+        col_gap = float(params.get('col_gap', 0))
+        row_gap = float(params.get('row_gap', 0))
+        rows = int(params.get('rows', 3))
+        cols = int(params.get('cols', 3))
+        scale_correction = float(params.get('user_scale_factor', 1.0))
+        page_w = float(params.get('page_w', 210))
+        page_h = float(params.get('page_h', 297))
+
+        skip_hw_margin = settings.get("skip_hw_margin", False)
+        if skip_hw_margin:
+            hw_left = hw_top = hw_right = hw_bottom = 0
+
+        # Correct: always read font_scale_factor from the ROOT of settings!
+        font_scale_factor = float(settings.get("font_scale_factor", 1.0))
+
+        print("skip_hw_margin =", skip_hw_margin, "hw_left =", hw_left, "hw_top =", hw_top, "font_scale_factor =", font_scale_factor)
 
         px_per_mm = dpi / 25.4 * scale_correction
         page_w_px = round(page_w * px_per_mm)
@@ -291,26 +303,9 @@ class LabelSheetEditor(QWidget):
                     qp.setBrush(Qt.NoBrush)
                     qp.drawRect(x, y, w, h)
                     qp.restore()
-                draw_label_print(qp, x, y, w, h, self.labels[idx])
+                draw_label_print(qp, x, y, w, h, self.labels[idx], font_scale=font_scale_factor)
                 idx += 1
 
-    def reload_from_calibration(self):
-        self.sheet_settings = load_sheet_settings()
-        self.rows = self.sheet_settings.get('rows', 3)
-        self.cols = self.sheet_settings.get('cols', 3)
-        self.label_w_mm = self.sheet_settings.get('label_w', 63.5)
-        self.label_h_mm = self.sheet_settings.get('label_h', 38.1)
-        label_count = self.rows * self.cols
-        if len(self.labels) < label_count:
-            for _ in range(label_count - len(self.labels)):
-                self.labels.append(blank_label())
-        elif len(self.labels) > label_count:
-            self.labels = self.labels[:label_count]
-        self.selected = [min(self.selected[0], label_count - 1)] if self.selected and label_count else []
-        self.preview_pane.update_calibration(self.rows, self.cols, self.label_w_mm, self.label_h_mm)
-        self.refresh_preview()
-        self.update_edit_panel_from_selection()
-        self.ensure_at_least_one_selected()
 
 if __name__ == "__main__":
     from PyQt5.QtGui import QFontDatabase
