@@ -1,8 +1,9 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QTextEdit, QLineEdit, QComboBox, QToolButton, QHBoxLayout
+    QWidget, QVBoxLayout, QLabel, QTextEdit, QLineEdit, QComboBox, QHBoxLayout, QPushButton
 )
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 from PyQt5.QtCore import pyqtSignal
+from field_toolbar import FieldToolbar
 
 CONV_MODES = [
     ("BGN → EUR", "bgn_to_eur"),
@@ -11,9 +12,17 @@ CONV_MODES = [
     ("Без конверсия", "manual"),
 ]
 
+FIELD_CONFIG = [
+    ("main",   "Основен текст:", True),
+    ("second", "Втори ред:", True),
+    ("bgn",    "Цена BGN:", False),
+    ("eur",    "Цена EUR:", False),
+]
+
 class LeftPaneWidget(QWidget):
     # Signals for external logic to connect to
     text_changed = pyqtSignal(str, str)  # key, value
+    style_changed = pyqtSignal(str, dict)  # key, style dict
     conversion_changed = pyqtSignal(str)
     print_clicked = pyqtSignal()
     pdf_clicked = pyqtSignal()
@@ -24,12 +33,13 @@ class LeftPaneWidget(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-
-        # --- Input fields ---
         self.field_inputs = {}
-        for key, lbl in [("main", "Основен текст:"), ("second", "Втори ред:"), ("bgn", "Цена BGN:"), ("eur", "Цена EUR:")]:
+        self.field_toolbars = {}
+
+        for key, lbl, is_multiline in FIELD_CONFIG:
             layout.addWidget(QLabel(lbl))
-            if key in ("main", "second"):
+            # Input widget
+            if is_multiline:
                 w = QTextEdit()
                 w.setFont(QFont("Arial", 16))
                 w.setFixedHeight(54)
@@ -40,8 +50,13 @@ class LeftPaneWidget(QWidget):
                 w.textChanged.connect(lambda text, k=key: self.text_changed.emit(k, text))
             self.field_inputs[key] = w
             layout.addWidget(w)
+            # Per-field toolbar
+            tb = FieldToolbar()
+            tb.style_changed.connect(lambda style, k=key: self.style_changed.emit(k, style))
+            self.field_toolbars[key] = tb
+            layout.addWidget(tb)
 
-        # --- Conversion mode dropdown ---
+        # Conversion mode dropdown
         layout.addSpacing(6)
         layout.addWidget(QLabel("Конвертиране на валута:"))
         self.conv_mode_combo = QComboBox()
@@ -54,16 +69,15 @@ class LeftPaneWidget(QWidget):
 
         layout.addStretch(1)
 
-        # --- Print and PDF buttons at bottom left ---
+        # Print and PDF buttons at bottom left
         btn_row = QHBoxLayout()
-        self.print_btn = QToolButton()
-        self.print_btn.setText("Печат")
-        self.print_btn.setFixedHeight(36)
+        from PyQt5.QtGui import QIcon
+        import os
+        RESOURCES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
+        self.print_btn = QLabelBtn("Печат", QIcon(os.path.join(RESOURCES, "print_.svg")))
         self.print_btn.clicked.connect(self.print_clicked.emit)
 
-        self.pdf_btn = QToolButton()
-        self.pdf_btn.setText("Запази PDF")
-        self.pdf_btn.setFixedHeight(36)
+        self.pdf_btn = QLabelBtn("Запази PDF", QIcon(os.path.join(RESOURCES, "export_as_pdf.svg")))
         self.pdf_btn.clicked.connect(self.pdf_clicked.emit)
 
         btn_row.addWidget(self.print_btn)
@@ -78,13 +92,13 @@ class LeftPaneWidget(QWidget):
 
     def set_field_value(self, key, value):
         w = self.field_inputs[key]
+        if hasattr(w, "blockSignals"):
+            w.blockSignals(True)
         if isinstance(w, QTextEdit):
-            w.blockSignals(True)
             w.setPlainText(value)
-            w.blockSignals(False)
         else:
-            w.blockSignals(True)
             w.setText(value)
+        if hasattr(w, "blockSignals"):
             w.blockSignals(False)
 
     def get_field_value(self, key):
@@ -99,3 +113,19 @@ class LeftPaneWidget(QWidget):
             if self.conv_mode_combo.itemData(i) == mode_key:
                 self.conv_mode_combo.setCurrentIndex(i)
                 break
+
+    def set_toolbar_state(self, key, style_dict):
+        tb = self.field_toolbars.get(key)
+        if tb:
+            tb.set_toolbar_state(style_dict)
+
+# --- Helper: QPushButton with Icon and text, to look like original ---
+from PyQt5.QtWidgets import QPushButton
+class QLabelBtn(QPushButton):
+    def __init__(self, label, icon=QIcon(), parent=None):
+        super().__init__(label, parent)
+        if icon:
+            self.setIcon(icon)
+        self.setMinimumHeight(36)
+        self.setMaximumWidth(120)
+        self.setStyleSheet("font-size:15px; font-weight:bold;")

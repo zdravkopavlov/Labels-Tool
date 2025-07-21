@@ -6,12 +6,13 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 
-from toolbar import ToolbarWidget
 from left_pane import LeftPaneWidget
 from preview_pane import PreviewPaneWidget
 
 from currency_manager import CurrencyManager
 from session_manager import SessionManager
+
+from label_drawing import draw_label_print
 
 MM_TO_PX = 72 / 25.4
 
@@ -44,7 +45,6 @@ class LabelSheetEditor(QWidget):
         self.setWindowTitle("Строймаркет Цаков – Етикетен инструмент – Версия: 3.0.0")
         self.font_list = font_list
 
-        # --- Calibration: set up grid, label aspect, etc. ---
         self.sheet_settings = load_sheet_settings()
         self.rows = self.sheet_settings.get('rows', 3)
         self.cols = self.sheet_settings.get('cols', 3)
@@ -56,13 +56,12 @@ class LabelSheetEditor(QWidget):
         self.selected = [0] if self.labels else []
         self.active_field = "main"
 
-        # --- Main layout: left (toolbar + inputs), right (preview) ---
+        self.debug_draw_boxes = False  # For developer debugging
+
         main_h = QHBoxLayout(self)
 
-        # --- LEFT PANE: Toolbar + Inputs ---
+        # --- LEFT PANE ---
         left_panel = QVBoxLayout()
-        self.toolbar = ToolbarWidget(font_list)
-        left_panel.addWidget(self.toolbar)
         self.left_pane = LeftPaneWidget()
         left_panel.addWidget(self.left_pane)
         left_panel.addStretch(1)
@@ -83,7 +82,7 @@ class LabelSheetEditor(QWidget):
         main_h.addLayout(right_panel, 1)
         self.setLayout(main_h)
 
-        # --- Managers (currency, session) ---
+        # --- Managers ---
         self.currency_manager = CurrencyManager(
             self.left_pane.field_inputs['bgn'], self.left_pane.field_inputs['eur']
         )
@@ -92,21 +91,9 @@ class LabelSheetEditor(QWidget):
         # --- Currency: Connect signal for preview update ---
         self.currency_manager.price_converted.connect(self.on_converted_price)
 
-        # --- FIELD FOCUS HANDLING (Toolbar/Field Sync) ---
-        for key, widget in self.left_pane.field_inputs.items():
-            widget.installEventFilter(self)
-
-        # --- Signal wiring: TOOLBAR <-> EDITOR LOGIC ---
-        self.toolbar.font_changed.connect(self.set_font_family)
-        self.toolbar.size_changed.connect(self.set_font_size)
-        self.toolbar.bold_changed.connect(self.set_bold)
-        self.toolbar.italic_changed.connect(self.set_italic)
-        self.toolbar.align_changed.connect(self.set_alignment)
-        self.toolbar.font_color_changed.connect(lambda color: self.set_field_color("font_color", color))
-        self.toolbar.bg_color_changed.connect(lambda color: self.set_field_color("bg_color", color))
-
         # --- Signal wiring: LEFT PANE <-> EDITOR LOGIC ---
         self.left_pane.text_changed.connect(self.on_field_edited)
+        self.left_pane.style_changed.connect(self.on_field_style_changed)
         self.left_pane.conversion_changed.connect(self.currency_manager.set_mode)
         self.left_pane.print_clicked.connect(self.do_print)
         self.left_pane.pdf_clicked.connect(self.do_export_pdf)
@@ -127,13 +114,28 @@ class LabelSheetEditor(QWidget):
         self.session_manager.save_session()
         self.refresh_preview()
 
+    def on_field_edited(self, key, value):
+        sel = self.selected
+        if not sel:
+            return
+        for idx in sel:
+            self.labels[idx][key]["text"] = value
+        self.session_manager.save_session()
+        self.refresh_preview()
+
+    def on_field_style_changed(self, key, style):
+        # Update style for all selected labels for this field
+        sel = self.selected
+        if not sel:
+            return
+        for idx in sel:
+            for prop, val in style.items():
+                self.labels[idx][key][prop] = val
+        self.session_manager.save_session()
+        self.refresh_preview()
+
     def eventFilter(self, obj, ev):
-        if ev.type() == ev.FocusIn:
-            for k, w in self.left_pane.field_inputs.items():
-                if obj is w:
-                    self.active_field = k
-                    self.update_toolbar_from_field()
-                    break
+        # No toolbar anymore, but if you want to keep track of active_field for future use
         return super().eventFilter(obj, ev)
 
     def on_label_clicked(self, idx, event):
@@ -213,109 +215,14 @@ class LabelSheetEditor(QWidget):
                     w.setText("")
                 w.setPlaceholderText("——————разлики——————")
             w.blockSignals(False)
-        self.update_toolbar_from_field()
-    def update_toolbar_from_field(self):
-        sel = self.selected
-        if not sel:
-            return
-        key = self.active_field if hasattr(self, "active_field") else "main"
-        vals = [self.labels[idx][key] for idx in sel]
-        f = vals[0]
-        fonts_same = all(v["font"] == f["font"] for v in vals)
-        sizes_same = all(v["size"] == f["size"] for v in vals)
-        bold_same = all(v["bold"] == f["bold"] for v in vals)
-        italic_same = all(v["italic"] == f["italic"] for v in vals)
-        align_same = all(v["align"] == f["align"] for v in vals)
-        color_same = all(v["font_color"] == f["font_color"] for v in vals)
-        bg_same = all(v["bg_color"] == f["bg_color"] for v in vals)
-        self.toolbar.set_toolbar_state(
-            font=f["font"] if fonts_same else None,
-            size=f["size"] if sizes_same else None,
-            bold=f["bold"] if bold_same else None,
-            italic=f["italic"] if italic_same else None,
-            align=f["align"] if align_same else None,
-            font_color=f['font_color'] if color_same else None,
-            bg_color=f['bg_color'] if bg_same else None,
-        )
-
-    def on_field_edited(self, key, value):
-        sel = self.selected
-        if not sel:
-            return
-        for idx in sel:
-            self.labels[idx][key]["text"] = value
-        self.session_manager.save_session()
-        self.refresh_preview()
-
-    def set_font_family(self, fontname):
-        sel = self.selected
-        if not sel:
-            return
-        k = self.active_field
-        for idx in sel:
-            self.labels[idx][k]["font"] = fontname
-        self.update_toolbar_from_field()
-        self.session_manager.save_session()
-        self.refresh_preview()
-
-    def set_font_size(self, size):
-        sel = self.selected
-        if not sel:
-            return
-        k = self.active_field
-        for idx in sel:
-            self.labels[idx][k]["size"] = size
-        self.update_toolbar_from_field()
-        self.session_manager.save_session()
-        self.refresh_preview()
-
-    def set_bold(self, checked):
-        sel = self.selected
-        if not sel:
-            return
-        k = self.active_field
-        for idx in sel:
-            self.labels[idx][k]["bold"] = checked
-        self.update_toolbar_from_field()
-        self.session_manager.save_session()
-        self.refresh_preview()
-
-    def set_italic(self, checked):
-        sel = self.selected
-        if not sel:
-            return
-        k = self.active_field
-        for idx in sel:
-            self.labels[idx][k]["italic"] = checked
-        self.update_toolbar_from_field()
-        self.session_manager.save_session()
-        self.refresh_preview()
-
-    def set_alignment(self, align_value):
-        sel = self.selected
-        if not sel:
-            return
-        k = self.active_field
-        for idx in sel:
-            self.labels[idx][k]["align"] = align_value
-        self.update_toolbar_from_field()
-        self.session_manager.save_session()
-        self.refresh_preview()
-
-    def set_field_color(self, prop, val):
-        sel = self.selected
-        if not sel:
-            return
-        k = self.active_field
-        for idx in sel:
-            self.labels[idx][k][prop] = val
-        self.update_toolbar_from_field()
-        self.session_manager.save_session()
-        self.refresh_preview()
+        # --- Also update each field toolbar to reflect selected label's style
+        for key in self.left_pane.field_toolbars:
+            style = self.labels[sel[0]][key]
+            self.left_pane.set_toolbar_state(key, style)
 
     def do_print(self):
         from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
-        from PyQt5.QtGui import QPainter, QColor, QFont
+        from PyQt5.QtGui import QPainter
         printer = QPrinter(QPrinter.HighResolution)
         printer.setPageSize(QPrinter.A4)
         printer.setOrientation(QPrinter.Portrait)
@@ -326,7 +233,7 @@ class LabelSheetEditor(QWidget):
             painter.end()
 
     def do_export_pdf(self):
-        from PyQt5.QtGui import QPagedPaintDevice, QPdfWriter, QPainter, QColor, QFont
+        from PyQt5.QtGui import QPagedPaintDevice, QPdfWriter, QPainter
         from PyQt5.QtWidgets import QFileDialog
         path, _ = QFileDialog.getSaveFileName(self, "Запази PDF", "", "PDF Files (*.pdf)")
         if not path:
@@ -340,89 +247,52 @@ class LabelSheetEditor(QWidget):
         QMessageBox.information(self, "Успех", "PDF файлът е запазен успешно.")
 
     def render_sheet(self, qp, dpi):
-        # Read calibration settings
         settings = load_sheet_settings()
-        rows = settings.get('rows', 3)
-        cols = settings.get('cols', 3)
-        label_w = settings.get('label_w', 63.5)
-        label_h = settings.get('label_h', 38.1)
-        margin_left = settings.get('margin_left', 0)
-        margin_top = settings.get('margin_top', 0)
-        spacing_x = settings.get('spacing_x', 0)
-        spacing_y = settings.get('spacing_y', 0)
-        scale_correction = settings.get('user_scale_factor', 1.0)
-        sheet_w = settings.get('sheet_w', 210)
-        sheet_h = settings.get('sheet_h', 297)
+        hw_left = float(settings.get('hw_left', 0))
+        hw_top = float(settings.get('hw_top', 0))
+        hw_right = float(settings.get('hw_right', 0))
+        hw_bottom = float(settings.get('hw_bottom', 0))
+        sheet_left = float(settings.get('sheet_left', 0))
+        sheet_top = float(settings.get('sheet_top', 0))
+        label_w = float(settings.get('label_w', 63.5))
+        label_h = float(settings.get('label_h', 38.1))
+        col_gap = float(settings.get('col_gap', 0))
+        row_gap = float(settings.get('row_gap', 0))
+        rows = int(settings.get('rows', 3))
+        cols = int(settings.get('cols', 3))
+        scale_correction = float(settings.get('user_scale_factor', 1.0))
+        page_w = float(settings.get('page_w', 210))
+        page_h = float(settings.get('page_h', 297))
 
-        # All math in mm first
         px_per_mm = dpi / 25.4 * scale_correction
-        sheet_w_px = round(sheet_w * px_per_mm)
-        sheet_h_px = round(sheet_h * px_per_mm)
+        page_w_px = round(page_w * px_per_mm)
+        page_h_px = round(page_h * px_per_mm)
 
         qp.setRenderHint(qp.Antialiasing)
         qp.setBrush(Qt.white)
         qp.setPen(Qt.NoPen)
-        qp.drawRect(0, 0, sheet_w_px, sheet_h_px)
+        qp.drawRect(0, 0, page_w_px, page_h_px)
 
         idx = 0
-
         for row in range(rows):
             for col in range(cols):
                 if idx >= len(self.labels):
                     break
-                # Calculate label top-left corner (identical math as calibration grid)
-                x_mm = margin_left + col * (label_w + spacing_x)
-                y_mm = margin_top + row * (label_h + spacing_y)
+                x_mm = hw_left + sheet_left + col * (label_w + col_gap)
+                y_mm = hw_top + sheet_top + row * (label_h + row_gap)
                 x = round(x_mm * px_per_mm)
                 y = round(y_mm * px_per_mm)
                 w = round(label_w * px_per_mm)
                 h = round(label_h * px_per_mm)
-                self.draw_label_print(qp, x, y, w, h, self.labels[idx])
+                if self.debug_draw_boxes:
+                    from PyQt5.QtGui import QPen, QColor
+                    qp.save()
+                    qp.setPen(QPen(QColor("#FF3333"), 2, Qt.DashLine))
+                    qp.setBrush(Qt.NoBrush)
+                    qp.drawRect(x, y, w, h)
+                    qp.restore()
+                draw_label_print(qp, x, y, w, h, self.labels[idx])
                 idx += 1
-
-
-    def draw_label_print(self, qp, x, y, w, h, label):
-        from PyQt5.QtGui import QColor, QFont
-        qp.save()
-        qp.setPen(Qt.NoPen)
-        qp.setBrush(QColor(label["main"]["bg_color"]))
-        qp.drawRect(x, y, w, h)
-        margin = int(12 * w / 150)
-        x0, y0 = x + margin, y + margin
-        ww, hh = w - 2 * margin, h - 2 * margin
-        lines = []
-        for key in ["main", "second", "bgn", "eur"]:
-            fld = label[key]
-            t = fld["text"]
-            if key == "bgn":
-                t = t.replace(" лв.", "").replace("лв.", "").strip()
-                if t:
-                    t += " лв."
-            if key == "eur":
-                t = t.replace("€", "").strip()
-                if t:
-                    t = "€" + t
-            if t:
-                lines.append((t, fld))
-        total_h, metrics = 0, []
-        for text, field in lines:
-            fnt = QFont(field['font'], int(field['size']))
-            fnt.setBold(field['bold'])
-            fnt.setItalic(field['italic'])
-            qp.setFont(fnt)
-            fm = qp.fontMetrics()
-            rect_t = fm.boundingRect(0, 0, ww, hh, field['align'] | Qt.TextWordWrap, text)
-            metrics.append((rect_t.height(), field, text, fnt))
-            total_h += rect_t.height()
-        cy = y0 + (hh - total_h) // 2
-        for hgt, field, text, fnt in metrics:
-            qp.setFont(fnt)
-            qp.setPen(QColor(field.get("font_color", "#222")))
-            rect_t = qp.fontMetrics().boundingRect(0, 0, ww, hgt, field['align'] | Qt.TextWordWrap, text)
-            draw_rect = rect_t.translated(x0, cy)
-            qp.drawText(draw_rect, field['align'] | Qt.TextWordWrap, text)
-            cy += hgt
-        qp.restore()
 
     def reload_from_calibration(self):
         self.sheet_settings = load_sheet_settings()

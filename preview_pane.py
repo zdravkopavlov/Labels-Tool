@@ -1,9 +1,12 @@
 from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtCore import Qt, pyqtSignal, QRect
-from PyQt5.QtGui import QColor, QPainter, QPen, QFont
+from PyQt5.QtGui import QColor, QPainter, QPen
+
+# NEW: Import your label preview drawing function!
+from label_drawing import draw_label_preview
 
 PREVIEW_LABEL_SCALE = 3.0  # <-- Adjust this to make preview bigger/smaller
-PREVIEW_LABEL_GAP = 5     # gap in px
+PREVIEW_LABEL_GAP = 5      # gap in px
 
 class PreviewPaneWidget(QWidget):
     label_clicked = pyqtSignal(int, object)
@@ -40,7 +43,6 @@ class PreviewPaneWidget(QWidget):
     def paintEvent(self, event):
         qp = QPainter(self)
         qp.setRenderHint(QPainter.Antialiasing)
-        # Label size in px (using calibration × scale)
         label_w_px = int(self.label_w_mm * PREVIEW_LABEL_SCALE)
         label_h_px = int(self.label_h_mm * PREVIEW_LABEL_SCALE)
         gap_px = self.gap
@@ -59,50 +61,16 @@ class PreviewPaneWidget(QWidget):
                     break
                 x = left + col * (label_w_px + gap_px)
                 y = top + row * (label_h_px + gap_px)
-                self.draw_preview_label(qp, x, y, label_w_px, label_h_px, self.labels[idx], idx in self.selected)
+                # Draw selection highlight border
+                if idx in self.selected:
+                    qp.save()
+                    qp.setPen(QPen(QColor(70, 130, 255), 3))
+                    qp.setBrush(Qt.NoBrush)
+                    qp.drawRoundedRect(x, y, label_w_px, label_h_px, 16, 16)
+                    qp.restore()
+                # Draw the label itself using new universal drawing function!
+                draw_label_preview(qp, x, y, label_w_px, label_h_px, self.labels[idx], scale=PREVIEW_LABEL_SCALE)
                 idx += 1
-
-    def draw_preview_label(self, qp, x, y, w, h, label, is_selected):
-        r = 16
-        pen = QPen(QColor(70, 130, 255) if is_selected else QColor("#CCCCCC"), 2 if is_selected else 1)
-        qp.setPen(pen)
-        qp.setBrush(QColor("#FFFFFF"))
-        qp.drawRoundedRect(x, y, w, h, r, r)
-        margin = int(w * 0.08)
-        x0, y0 = x + margin, y + margin
-        ww, hh = w - 2 * margin, h - 2 * margin
-        lines = []
-        for key in ["main", "second", "bgn", "eur"]:
-            fld = label[key]
-            t = fld["text"]
-            if key == "bgn":
-                t = t.replace(" лв.", "").replace("лв.", "").strip()
-                if t:
-                    t += " лв."
-            if key == "eur":
-                t = t.replace("€", "").strip()
-                if t:
-                    t = "€" + t
-            if t:
-                lines.append((t, fld))
-        total_h, metrics = 0, []
-        for text, field in lines:
-            fnt = QFont(field['font'], int(field['size']))
-            fnt.setBold(field['bold'])
-            fnt.setItalic(field['italic'])
-            qp.setFont(fnt)
-            fm = qp.fontMetrics()
-            rect_t = fm.boundingRect(0, 0, ww, hh, field['align'] | Qt.TextWordWrap, text)
-            metrics.append((rect_t.height(), field, text, fnt))
-            total_h += rect_t.height()
-        cy = y0 + (hh - total_h) // 2
-        for hgt, field, text, fnt in metrics:
-            qp.setFont(fnt)
-            qp.setPen(QColor(field.get("font_color", "#222")))
-            rect_t = qp.fontMetrics().boundingRect(0, 0, ww, hgt, field['align'] | Qt.TextWordWrap, text)
-            draw_rect = rect_t.translated(x0, cy)
-            qp.drawText(draw_rect, field['align'] | Qt.TextWordWrap, text)
-            cy += hgt
 
     def mousePressEvent(self, event):
         if event.button() not in (Qt.LeftButton, Qt.RightButton):
