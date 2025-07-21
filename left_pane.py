@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QTextEdit, QLineEdit, QComboBox, QHBoxLayout, QPushButton
+    QWidget, QVBoxLayout, QLabel, QTextEdit, QLineEdit, QComboBox, QHBoxLayout, QPushButton, QSpinBox, QDoubleSpinBox
 )
 from PyQt5.QtGui import QFont, QIcon
 from PyQt5.QtCore import pyqtSignal
@@ -26,6 +26,7 @@ class LeftPaneWidget(QWidget):
     conversion_changed = pyqtSignal(str)
     print_clicked = pyqtSignal()
     pdf_clicked = pyqtSignal()
+    logo_settings_changed = pyqtSignal(dict)  # for logo controls
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,7 +57,7 @@ class LeftPaneWidget(QWidget):
             self.field_toolbars[key] = tb
             layout.addWidget(tb)
 
-        # Conversion mode dropdown
+        # --- Currency conversion section ---
         layout.addSpacing(6)
         layout.addWidget(QLabel("Конвертиране на валута:"))
         self.conv_mode_combo = QComboBox()
@@ -67,7 +68,36 @@ class LeftPaneWidget(QWidget):
         self.conv_mode_combo.currentIndexChanged.connect(self._on_conv_mode_changed)
         layout.addWidget(self.conv_mode_combo)
 
-        layout.addStretch(1)
+        # --- Logo controls section ---
+        layout.addSpacing(16)
+        layout.addWidget(QLabel("Лого:"))
+        logo_row = QHBoxLayout()
+        logo_row.setSpacing(6)
+
+        self.logo_position = QComboBox()
+        self.logo_position.addItems(["без лого", "долу ляво", "долу дясно"])
+        self.logo_position.currentIndexChanged.connect(self._emit_logo_settings)
+        logo_row.addWidget(self.logo_position)
+
+        self.logo_size = QSpinBox()
+        self.logo_size.setRange(10, 128)
+        self.logo_size.setValue(24)
+        self.logo_size.setSingleStep(2)
+        self.logo_size.valueChanged.connect(self._emit_logo_settings)
+        logo_row.addWidget(self.logo_size)
+
+        self.logo_opacity = QDoubleSpinBox()
+        self.logo_opacity.setRange(0.05, 1.0)
+        self.logo_opacity.setSingleStep(0.05)
+        self.logo_opacity.setValue(1.0)
+        self.logo_opacity.setDecimals(2)
+        self.logo_opacity.valueChanged.connect(self._emit_logo_settings)
+        logo_row.addWidget(self.logo_opacity)
+
+        layout.addLayout(logo_row)
+
+        # --- Add fixed space above the buttons ---
+        layout.addSpacing(100)
 
         # Print and PDF buttons at bottom left
         btn_row = QHBoxLayout()
@@ -76,15 +106,21 @@ class LeftPaneWidget(QWidget):
         RESOURCES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
         self.print_btn = QLabelBtn("Печат", QIcon(os.path.join(RESOURCES, "print_.svg")))
         self.print_btn.clicked.connect(self.print_clicked.emit)
-
         self.pdf_btn = QLabelBtn("Запази PDF", QIcon(os.path.join(RESOURCES, "export_as_pdf.svg")))
         self.pdf_btn.clicked.connect(self.pdf_clicked.emit)
-
         btn_row.addWidget(self.print_btn)
         btn_row.addWidget(self.pdf_btn)
         layout.addLayout(btn_row)
 
         self.setLayout(layout)
+
+    def _emit_logo_settings(self):
+        logo_dict = {
+            "position": self.logo_position.currentText(),
+            "size": self.logo_size.value(),
+            "opacity": float(self.logo_opacity.value())
+        }
+        self.logo_settings_changed.emit(logo_dict)
 
     def _on_conv_mode_changed(self, idx):
         mode = self.conv_mode_combo.itemData(idx)
