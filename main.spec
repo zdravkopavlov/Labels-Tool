@@ -47,5 +47,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Строймаркет_етикети'
+    name='Строймаркет_етикети_3'
 )
