@@ -14,7 +14,7 @@ from label_editor import LabelSheetEditor
 
 from sheet_calibration_utility import CalibrationTab
 
-APP_NAME = "Строймаркет Цаков – Етикетен инструмент -"
+APP_NAME = "Строймаркет Цаков – Редактор за етикети -"
 WINDOW_TITLE = f"{APP_NAME} Версия: - {VERSION}"
 ICON_FILE = os.path.join(os.path.dirname(__file__), "icon.ico")
 
@@ -47,7 +47,7 @@ def main():
     label_editor = LabelSheetEditor(FONT_LIST)
     calibration = CalibrationTab()
 
-    tabs.addTab(label_editor, "Редактор на етикети")
+    tabs.addTab(label_editor, "Редактор")
     tabs.addTab(calibration, "Калибриране")
 
     layout.addWidget(tabs)
