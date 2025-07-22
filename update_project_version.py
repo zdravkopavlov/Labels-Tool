@@ -6,7 +6,7 @@ CHANGELOG_FILE = os.path.join(os.path.dirname(__file__), "Documentation", "chang
 VERSION_PY = os.path.join(os.path.dirname(__file__), "version.py")
 LATEST_JSON = os.path.join(os.path.dirname(__file__), "git_release.json")
 ISS_FILE = os.path.join(os.path.dirname(__file__), "Installer.iss")
-DOWNLOAD_URL_FMT = "https://github.com/zdravkopavlov/Currency-Coverter/releases/download/v{version}/BGN-EUR_Converter_Setup_{version}.exe"
+# DOWNLOAD_URL_FMT = "https://github.com/zdravkopavlov/Currency-Coverter/releases/download/v{version}/BGN-EUR_Converter_Setup_{version}.exe"
 
 def get_latest_version_info(changelog_file=CHANGELOG_FILE):
     with open(changelog_file, encoding="utf-8") as f:
