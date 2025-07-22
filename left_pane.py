@@ -7,11 +7,15 @@ from field_toolbar import FieldToolbar
 import sys
 import os
 
-# --- Robust resource path for PyInstaller builds and dev mode ---
+# --- Robust resource path for PyInstaller one-folder builds and dev mode ---
 def resource_path(relative_path):
+    # Works for both dev and PyInstaller one-folder
     if hasattr(sys, '_MEIPASS'):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+        # Should only be used for one-file!
+        base_path = sys._MEIPASS
+    else:
+        base_path = os.path.dirname(os.path.abspath(sys.argv[0]))
+    return os.path.join(base_path, relative_path)
 
 CONV_MODES = [
     ("BGN → EUR", "bgn_to_eur"),
@@ -109,7 +113,7 @@ class LeftPaneWidget(QWidget):
 
         # Print and PDF buttons at bottom left
         btn_row = QHBoxLayout()
-        # Now use resource_path for icons!
+        # Use resource_path for icons!
         self.print_btn = QLabelBtn("Печат", QIcon(resource_path("resources/print_.svg")))
         self.print_btn.clicked.connect(self.print_clicked.emit)
         self.pdf_btn = QLabelBtn("Запази PDF", QIcon(resource_path("resources/export_as_pdf.svg")))

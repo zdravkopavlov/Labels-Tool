@@ -1,6 +1,9 @@
 import sys
 import os
 
+from left_pane import resource_path
+print("resource_path test (logo):", resource_path("resources/logo.svg"))
+
 from PyQt5.QtWidgets import QApplication, QTabWidget, QWidget, QVBoxLayout
 from PyQt5.QtGui import QIcon
 
