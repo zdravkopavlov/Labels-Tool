@@ -4,7 +4,7 @@ import json
 
 CHANGELOG_FILE = os.path.join(os.path.dirname(__file__), "Documentation", "changelog.md")
 VERSION_PY = os.path.join(os.path.dirname(__file__), "version.py")
-LATEST_JSON = os.path.join(os.path.dirname(__file__), "latest_version.json")
+LATEST_JSON = os.path.join(os.path.dirname(__file__), "git_release.json")
 ISS_FILE = os.path.join(os.path.dirname(__file__), "Installer.iss")
 DOWNLOAD_URL_FMT = "https://github.com/zdravkopavlov/Currency-Coverter/releases/download/v{version}/BGN-EUR_Converter_Setup_{version}.exe"
 
