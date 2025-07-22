@@ -4,6 +4,14 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QFont, QIcon
 from PyQt5.QtCore import pyqtSignal
 from field_toolbar import FieldToolbar
+import sys
+import os
+
+# --- Robust resource path for PyInstaller builds and dev mode ---
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 CONV_MODES = [
     ("BGN → EUR", "bgn_to_eur"),
@@ -101,12 +109,10 @@ class LeftPaneWidget(QWidget):
 
         # Print and PDF buttons at bottom left
         btn_row = QHBoxLayout()
-        from PyQt5.QtGui import QIcon
-        import os
-        RESOURCES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources")
-        self.print_btn = QLabelBtn("Печат", QIcon(os.path.join(RESOURCES, "print_.svg")))
+        # Now use resource_path for icons!
+        self.print_btn = QLabelBtn("Печат", QIcon(resource_path("resources/print_.svg")))
         self.print_btn.clicked.connect(self.print_clicked.emit)
-        self.pdf_btn = QLabelBtn("Запази PDF", QIcon(os.path.join(RESOURCES, "export_as_pdf.svg")))
+        self.pdf_btn = QLabelBtn("Запази PDF", QIcon(resource_path("resources/export_as_pdf.svg")))
         self.pdf_btn.clicked.connect(self.pdf_clicked.emit)
         btn_row.addWidget(self.print_btn)
         btn_row.addWidget(self.pdf_btn)
