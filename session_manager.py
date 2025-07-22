@@ -2,6 +2,7 @@
 
 import os
 import json
+from pathlib import Path
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
 
 class SessionManager:
@@ -11,7 +12,8 @@ class SessionManager:
     """
     def __init__(self, sheet_widget, session_filename="session.json"):
         self.sheet_widget = sheet_widget
-        self._default_session_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
+        # Save sessions in <user>/AppData/Roaming/LabelTool/
+        self._default_session_dir = os.path.join(str(Path.home()), "AppData", "Roaming", "LabelTool")
         os.makedirs(self._default_session_dir, exist_ok=True)
         self.session_path = os.path.join(self._default_session_dir, session_filename)
         self.last_mode = "bgn_to_eur"  # Default currency mode (string key)
