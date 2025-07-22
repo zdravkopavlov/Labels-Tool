@@ -26,6 +26,7 @@ def blank_label():
         "second":  {"text": "", "font": "Arial", "size": 12, "bold": False, "italic": False, "align": Qt.AlignCenter, "font_color": "#222", "bg_color": "#fff"},
         "bgn":     {"text": "", "font": "Arial", "size": 16, "bold": True,  "italic": False, "align": Qt.AlignCenter, "font_color": "#222", "bg_color": "#fff"},
         "eur":     {"text": "", "font": "Arial", "size": 16, "bold": True,  "italic": False, "align": Qt.AlignCenter, "font_color": "#222", "bg_color": "#fff"},
+        "logo":    {"position": "без лого", "size": 24, "opacity": 1.0}
     }
 
 def load_sheet_settings():
@@ -69,6 +70,9 @@ class LabelSheetEditor(QWidget):
         left_panel.addStretch(1)
         main_h.addLayout(left_panel, 0)
 
+        # --- Connect logo controls ---
+        self.left_pane.logo_settings_changed.connect(self.on_logo_settings_changed)
+
         # --- RIGHT PANE: Preview grid ---
         right_panel = QVBoxLayout()
         self.preview_pane = PreviewPaneWidget(
@@ -108,6 +112,15 @@ class LabelSheetEditor(QWidget):
         self.session_manager.load_session()
         self.update_edit_panel_from_selection()
         self.ensure_at_least_one_selected()
+        self.refresh_preview()
+
+    def on_logo_settings_changed(self, logo_dict):
+        sel = self.selected
+        if not sel:
+            return
+        for idx in sel:
+            self.labels[idx]["logo"] = logo_dict.copy()
+        self.session_manager.save_session()
         self.refresh_preview()
 
     def on_converted_price(self, which, value):
@@ -221,6 +234,36 @@ class LabelSheetEditor(QWidget):
         for key in self.left_pane.field_toolbars:
             style = self.labels[sel[0]][key]
             self.left_pane.set_toolbar_state(key, style)
+
+        # --- NEW: Logo controls: handle multi-selection and mixed state ---
+        logos = [self.labels[idx].get("logo", {}) for idx in sel]
+        pos_vals = set(lg.get("position", "без лого") for lg in logos)
+        size_vals = set(lg.get("size", 24) for lg in logos)
+        op_vals = set(lg.get("opacity", 1.0) for lg in logos)
+
+        # Block signals to avoid triggering .logo_settings_changed
+        self.left_pane.logo_position.blockSignals(True)
+        self.left_pane.logo_size.blockSignals(True)
+        self.left_pane.logo_opacity.blockSignals(True)
+
+        if len(pos_vals) == 1 and len(size_vals) == 1 and len(op_vals) == 1:
+            # All same: show value
+            pos = next(iter(pos_vals))
+            size = next(iter(size_vals))
+            op = next(iter(op_vals))
+            idx = self.left_pane.logo_position.findText(pos)
+            self.left_pane.logo_position.setCurrentIndex(idx if idx >= 0 else 0)
+            self.left_pane.logo_size.setValue(size)
+            self.left_pane.logo_opacity.setValue(op)
+        else:
+            # Mixed/undefined state: clear controls
+            self.left_pane.logo_position.setCurrentIndex(-1)
+            self.left_pane.logo_size.clear()
+            self.left_pane.logo_opacity.clear()
+
+        self.left_pane.logo_position.blockSignals(False)
+        self.left_pane.logo_size.blockSignals(False)
+        self.left_pane.logo_opacity.blockSignals(False)
 
     def do_print(self):
         from PyQt5.QtPrintSupport import QPrinter, QPrintDialog

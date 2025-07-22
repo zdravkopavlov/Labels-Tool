@@ -2,8 +2,8 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtCore import Qt, pyqtSignal, QRect
 from PyQt5.QtGui import QColor, QPainter, QPen
 
-# NEW: Import your label preview drawing function!
-from label_drawing import draw_label_preview
+# Import the label preview drawing function and the shared radius!
+from label_drawing import draw_label_preview, LABEL_CORNER_RADIUS
 
 PREVIEW_LABEL_SCALE = 3.0  # <-- Adjust this to make preview bigger/smaller
 PREVIEW_LABEL_GAP = 5      # gap in px
@@ -61,14 +61,15 @@ class PreviewPaneWidget(QWidget):
                     break
                 x = left + col * (label_w_px + gap_px)
                 y = top + row * (label_h_px + gap_px)
-                # Draw selection highlight border
+                # Draw selection highlight border (now matches label rounding)
                 if idx in self.selected:
                     qp.save()
                     qp.setPen(QPen(QColor(70, 130, 255), 3))
                     qp.setBrush(Qt.NoBrush)
-                    qp.drawRoundedRect(x, y, label_w_px, label_h_px, 16, 16)
+                    qp.drawRoundedRect(x, y, label_w_px, label_h_px,
+                                      LABEL_CORNER_RADIUS, LABEL_CORNER_RADIUS)
                     qp.restore()
-                # Draw the label itself using new universal drawing function!
+                # Draw the label itself using universal drawing function!
                 draw_label_preview(qp, x, y, label_w_px, label_h_px, self.labels[idx], scale=PREVIEW_LABEL_SCALE)
                 idx += 1
 

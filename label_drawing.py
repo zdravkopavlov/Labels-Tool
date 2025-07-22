@@ -1,6 +1,11 @@
 # label_drawing.py
 from PyQt5.QtGui import QFont, QColor, QTextDocument, QTextCursor, QTextBlockFormat, QTextCharFormat
 from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtSvg import QSvgRenderer
+import os
+
+# Shared constant for all label corners!
+LABEL_CORNER_RADIUS = 16
 
 def build_label_document(label_dict, width_px, font_scale=1.0):
     doc = QTextDocument()
@@ -49,15 +54,67 @@ def build_label_document(label_dict, width_px, font_scale=1.0):
     doc.setTextWidth(width_px)
     return doc
 
-def draw_label_preview(painter, x, y, w, h, label_dict, scale=1.0):
+def draw_logo(painter, x, y, w, h, logo_settings, scale=1.0):
+    if not logo_settings or logo_settings.get("position", "без лого") == "без лого":
+        return
+    svg_path = os.path.join(os.path.dirname(__file__), "resources", "logo.svg")
+    if not os.path.exists(svg_path):
+        return
+    renderer = QSvgRenderer(svg_path)
+    size = logo_settings.get("size", 24) * scale
+    opacity = logo_settings.get("opacity", 1.0)
+    margin = 6 * scale
+
+    if logo_settings.get("position") == "долу ляво":
+        pos_x = x + margin
+    else:
+        pos_x = x + w - size - margin
+    pos_y = y + h - size - margin
+
     painter.save()
-    radius = int(12 * scale)
+    painter.setOpacity(opacity)
+    renderer.render(painter, QRectF(pos_x, pos_y, size, size))
+    painter.setOpacity(1.0)
+    painter.restore()
+
+def draw_label_print(painter, x, y, w, h, label_dict, font_scale=1.0, scale=1.0):
+    painter.save()
+    radius = LABEL_CORNER_RADIUS
     painter.setPen(Qt.NoPen)
     painter.setBrush(QColor("#fff"))
     painter.drawRoundedRect(x, y, w, h, radius, radius)
     painter.setPen(QColor("#cccccc"))
     painter.setBrush(Qt.NoBrush)
     painter.drawRoundedRect(x, y, w, h, radius, radius)
+
+    # Pass font_scale to draw_logo for proportional scaling
+    logo_settings = label_dict.get("logo", None)
+    draw_logo(painter, x, y, w, h, logo_settings, scale=font_scale)
+
+    margin = int(6 * scale)
+    doc_width = w - 2 * margin
+    doc = build_label_document(label_dict, doc_width, font_scale=font_scale)
+    block_height = doc.size().height()
+    top = y + (h - block_height) / 2
+    painter.translate(x + margin, top)
+    doc.drawContents(painter, QRectF(0, 0, doc_width, block_height))
+    painter.restore()
+
+
+def draw_label_preview(painter, x, y, w, h, label_dict, scale=1.0):
+    painter.save()
+    radius = LABEL_CORNER_RADIUS
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#fff"))
+    painter.drawRoundedRect(x, y, w, h, radius, radius)
+    painter.setPen(QColor("#cccccc"))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRoundedRect(x, y, w, h, radius, radius)
+
+    # Draw logo as background layer
+    logo_settings = label_dict.get("logo", None)
+    draw_logo(painter, x, y, w, h, logo_settings)
+
     margin = int(6 * scale)
     doc_width = w - 2 * margin
     doc = build_label_document(label_dict, doc_width, font_scale=1.0)
@@ -67,21 +124,5 @@ def draw_label_preview(painter, x, y, w, h, label_dict, scale=1.0):
     doc.drawContents(painter, QRectF(0, 0, doc_width, block_height))
     painter.restore()
 
-def draw_label_print(painter, x, y, w, h, label_dict, font_scale=1.0, scale=1.0):
-    print("CALLED: draw_label_print, font_scale =", font_scale)  # Debug print!
-    painter.save()
-    radius = int(12 * scale)
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor("#fff"))
-    painter.drawRoundedRect(x, y, w, h, radius, radius)
-    painter.setPen(QColor("#cccccc"))
-    painter.setBrush(Qt.NoBrush)
-    painter.drawRoundedRect(x, y, w, h, radius, radius)
-    margin = int(6 * scale)
-    doc_width = w - 2 * margin
-    doc = build_label_document(label_dict, doc_width, font_scale=font_scale)
-    block_height = doc.size().height()
-    top = y + (h - block_height) / 2
-    painter.translate(x + margin, top)
-    doc.drawContents(painter, QRectF(0, 0, doc_width, block_height))
-    painter.restore()
+
+ 
