@@ -4,4 +4,5 @@ dist/
 build/
 config/
 .vscode/
+*.pdf
 Labels Tool.code-workspace
