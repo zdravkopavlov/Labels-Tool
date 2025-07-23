@@ -193,23 +193,38 @@ class LabelSheetEditor(QWidget):
             self.clipboard_style = {k: {kk: vv for kk, vv in self.labels[idx][k].items() if kk != "text"} for k in self.labels[idx]}
             self.clipboard = None
         elif action == paste_action:
-            if hasattr(self, 'clipboard') and self.clipboard:
-                for idx2 in sel:
-                    for k in self.labels[idx2]:
-                        self.labels[idx2][k] = self.clipboard[k].copy()
-            elif hasattr(self, 'clipboard_style') and self.clipboard_style:
-                for idx2 in sel:
-                    for k in self.labels[idx2]:
+            if idx not in sel:
+                if hasattr(self, 'clipboard') and self.clipboard:
+                    for k in self.labels[idx]:
+                        self.labels[idx][k] = self.clipboard[k].copy()
+                elif hasattr(self, 'clipboard_style') and self.clipboard_style:
+                    for k in self.labels[idx]:
                         for sk, vv in self.clipboard_style[k].items():
-                            self.labels[idx2][k][sk] = vv
-            self.update_edit_panel_from_selection()
+                            self.labels[idx][k][sk] = vv
+                self.selected = [idx]
+                self.update_edit_panel_from_selection()
+                self.refresh_preview()  # <-- Add this here
+            else:
+                if hasattr(self, 'clipboard') and self.clipboard:
+                    for idx2 in sel:
+                        for k in self.labels[idx2]:
+                            self.labels[idx2][k] = self.clipboard[k].copy()
+                elif hasattr(self, 'clipboard_style') and self.clipboard_style:
+                    for idx2 in sel:
+                        for k in self.labels[idx2]:
+                            for sk, vv in self.clipboard_style[k].items():
+                                self.labels[idx2][k][sk] = vv
+                self.update_edit_panel_from_selection()
+                self.refresh_preview()  # <-- And here
         elif action == delete_action:
             for idx2 in sel:
                 self.labels[idx2] = blank_label()
             self.update_edit_panel_from_selection()
+            self.refresh_preview()  # <-- And here too, for consistency
 
         self.session_manager.save_session()
-        self.refresh_preview()
+
+
 
     def ensure_at_least_one_selected(self):
         if not self.selected or self.selected[0] >= len(self.labels):

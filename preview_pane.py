@@ -38,6 +38,7 @@ class PreviewPaneWidget(QWidget):
         self.setMinimumSize(600, 400)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMouseTracking(True)
+        self.hovered_index = None  # <-- For hover effect
 
     def update_labels(self, labels):
         self.labels = labels
@@ -78,7 +79,7 @@ class PreviewPaneWidget(QWidget):
                     break
                 x = left + col * (label_w_px + gap_px)
                 y = top + row * (label_h_px + gap_px)
-                # Draw selection highlight border with dynamic radius
+                # Draw selection highlight border
                 if idx in self.selected:
                     qp.save()
                     qp.setPen(QPen(QColor(70, 130, 255), 3))
@@ -86,10 +87,56 @@ class PreviewPaneWidget(QWidget):
                     qp.drawRoundedRect(x, y, label_w_px, label_h_px,
                                       corner_radius, corner_radius)
                     qp.restore()
-                # Draw the label itself using universal drawing function, with dynamic radius
+                # Draw hover effect (AFTER selection so it's visible)
+                if idx == self.hovered_index:
+                    qp.save()
+                    qp.setPen(QPen(QColor(130, 200, 255, 180), 4, Qt.DashLine))
+                    qp.setBrush(Qt.NoBrush)
+                    qp.drawRoundedRect(x, y, label_w_px, label_h_px,
+                                      corner_radius, corner_radius)
+                    qp.restore()
+                # Draw the label itself
                 draw_label_preview(qp, x, y, label_w_px, label_h_px, self.labels[idx],
                                   scale=PREVIEW_LABEL_SCALE, corner_radius=corner_radius)
                 idx += 1
+
+    def mouseMoveEvent(self, event):
+        label_w_px = int(self.label_w_mm * PREVIEW_LABEL_SCALE)
+        label_h_px = int(self.label_h_mm * PREVIEW_LABEL_SCALE)
+        gap_px = self.gap
+        total_w = self.cols * label_w_px + (self.cols - 1) * gap_px
+        total_h = self.rows * label_h_px + (self.rows - 1) * gap_px
+        avail_w = self.width()
+        avail_h = self.height()
+        left = (avail_w - total_w) // 2 if avail_w > total_w else 0
+        top = (avail_h - total_h) // 2 if avail_h > total_h else 0
+
+        old_hover = self.hovered_index
+        idx = 0
+        found = False
+        for row in range(self.rows):
+            for col in range(self.cols):
+                if idx >= len(self.labels):
+                    break
+                x = left + col * (label_w_px + gap_px)
+                y = top + row * (label_h_px + gap_px)
+                rect = QRect(x, y, label_w_px, label_h_px)
+                if rect.contains(event.pos()):
+                    self.hovered_index = idx
+                    found = True
+                    break
+                idx += 1
+            if found:
+                break
+        else:
+            self.hovered_index = None
+        if self.hovered_index != old_hover:
+            self.update()
+
+    def leaveEvent(self, event):
+        if self.hovered_index is not None:
+            self.hovered_index = None
+            self.update()
 
     def mousePressEvent(self, event):
         if event.button() not in (Qt.LeftButton, Qt.RightButton):
