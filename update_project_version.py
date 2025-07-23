@@ -36,7 +36,7 @@ def write_version_py(version, version_py=VERSION_PY):
 def write_latest_version_json(version, changelog, date, json_file=LATEST_JSON):
     data = {
         "version": version,
-        "download_url": DOWNLOAD_URL_FMT.format(version=version),
+        #"download_url": DOWNLOAD_URL_FMT.format(version=version),
         "changelog": changelog,
         "date": date
     }
