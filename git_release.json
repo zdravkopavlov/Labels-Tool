@@ -1,5 +1,6 @@
 {
   "version": "3.0.1",
+  "download_url": "https://github.com/zdravkopavlov/Labels-Tool/releases/download/v3.0.1/Labels_Tool_Setup_3.0.1.exe",
   "changelog": "- ново: Преработен LabelSheetEditor и LeftPaneWidget – поддържат избор на шрифтове от папка fonts\n- ново: Подобрено визуализиране на етикети с динамичен радиус на заобляне и регулируеми отстояния",
   "date": "2025-07-23"
 }

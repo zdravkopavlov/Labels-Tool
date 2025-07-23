@@ -1,11 +1,12 @@
 __pycache__/
+.vscode/
 ghostscript/
 dist/
 build/
 config/
-.vscode/
+installer/
 *.pdf
 Labels Tool.code-workspace
 Installer.iss
-installer/Labels_Tool_Setup_3.0.0.exe
+
 UPDATE AND SYNC PROJECT VERSION.py
