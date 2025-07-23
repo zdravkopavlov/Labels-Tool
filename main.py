@@ -145,7 +145,8 @@ def main():
                 if families: FONT_LIST.extend(families)
     if not FONT_LIST:
         FONT_LIST = ["Arial"]
-    label_editor = LabelSheetEditor(FONT_LIST)
+
+    label_editor = LabelSheetEditor(fonts=FONT_LIST)
     calibration = CalibrationTab()
     tabs.addTab(label_editor, "Редактор")
     tabs.addTab(calibration, "Калибриране")
@@ -166,7 +167,6 @@ def main():
                 else:
                     # Pass download_url as an argument to update_downloader
                     import subprocess
-                    # On Windows, use startfile or subprocess with shell=True for .exe
                     subprocess.Popen([exe_path, update_url])
                     app.quit()
                     return

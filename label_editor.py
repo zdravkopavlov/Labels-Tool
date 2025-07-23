@@ -42,10 +42,10 @@ def load_sheet_settings():
     return {}
 
 class LabelSheetEditor(QWidget):
-    def __init__(self, font_list):
+    def __init__(self, fonts=None):
         super().__init__()
         self.setWindowTitle("Строймаркет Цаков – Етикетен инструмент – Версия: 3.0.0")
-        self.font_list = font_list
+        self.font_list = fonts if fonts is not None else ["Arial"]
 
         self.sheet_settings = load_sheet_settings()
         params = self.sheet_settings.get('params', {})
@@ -65,7 +65,7 @@ class LabelSheetEditor(QWidget):
 
         # --- LEFT PANE ---
         left_panel = QVBoxLayout()
-        self.left_pane = LeftPaneWidget()
+        self.left_pane = LeftPaneWidget(fonts=self.font_list)
         left_panel.addWidget(self.left_pane)
         left_panel.addStretch(1)
         main_h.addLayout(left_panel, 0)
@@ -113,6 +113,10 @@ class LabelSheetEditor(QWidget):
         self.update_edit_panel_from_selection()
         self.ensure_at_least_one_selected()
         self.refresh_preview()
+
+    # ... rest of your LabelSheetEditor code remains unchanged ...
+    # (all methods after __init__ are untouched)
+
 
     def on_logo_settings_changed(self, logo_dict):
         sel = self.selected

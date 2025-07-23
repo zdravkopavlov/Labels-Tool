@@ -40,8 +40,10 @@ class LeftPaneWidget(QWidget):
     pdf_clicked = pyqtSignal()
     logo_settings_changed = pyqtSignal(dict)  # for logo controls
 
-    def __init__(self, parent=None):
+    def __init__(self, fonts=None, parent=None):
         super().__init__(parent)
+        # Use passed-in fonts or fallback to Arial
+        self.fonts = fonts if fonts is not None else ["Arial"]
         self._setup_ui()
 
     def _setup_ui(self):
@@ -51,7 +53,7 @@ class LeftPaneWidget(QWidget):
 
         for key, lbl, is_multiline in FIELD_CONFIG:
             layout.addWidget(QLabel(lbl))
-            # Input widget
+            # Input widget (always uses Arial)
             if is_multiline:
                 w = QTextEdit()
                 w.setFont(QFont("Arial", 16))
@@ -63,8 +65,8 @@ class LeftPaneWidget(QWidget):
                 w.textChanged.connect(lambda text, k=key: self.text_changed.emit(k, text))
             self.field_inputs[key] = w
             layout.addWidget(w)
-            # Per-field toolbar
-            tb = FieldToolbar()
+            # Per-field toolbar uses font list from ./fonts
+            tb = FieldToolbar(fonts=self.fonts)
             tb.style_changed.connect(lambda style, k=key: self.style_changed.emit(k, style))
             self.field_toolbars[key] = tb
             layout.addWidget(tb)
@@ -113,7 +115,6 @@ class LeftPaneWidget(QWidget):
 
         # Print and PDF buttons at bottom left
         btn_row = QHBoxLayout()
-        # Use resource_path for icons!
         self.print_btn = QLabelBtn("Печат", QIcon(resource_path("resources/print_.svg")))
         self.print_btn.clicked.connect(self.print_clicked.emit)
         self.pdf_btn = QLabelBtn("Запази PDF", QIcon(resource_path("resources/export_as_pdf.svg")))
