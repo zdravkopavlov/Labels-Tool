@@ -1,12 +1,26 @@
 from PyQt5.QtWidgets import QWidget, QSizePolicy
 from PyQt5.QtCore import Qt, pyqtSignal, QRect
 from PyQt5.QtGui import QColor, QPainter, QPen
+import os
+import json
 
-# Import the label preview drawing function and the shared radius!
-from label_drawing import draw_label_preview, LABEL_CORNER_RADIUS
+# Import the label preview drawing function
+from label_drawing import draw_label_preview
 
-PREVIEW_LABEL_SCALE = 3.0  # <-- Adjust this to make preview bigger/smaller
+PREVIEW_LABEL_SCALE = 3.2  # Preview scale for UI
 PREVIEW_LABEL_GAP = 5      # gap in px
+
+def load_current_corner_radius():
+    # Reads corner_radius from sheet_settings.json each time (no restart needed)
+    try:
+        appdata_path = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "LabelTool")
+        sheet_settings_path = os.path.join(appdata_path, "sheet_settings.json")
+        with open(sheet_settings_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        params = data.get("params", {})
+        return float(params.get("corner_radius", 2.5))
+    except Exception:
+        return 2.5
 
 class PreviewPaneWidget(QWidget):
     label_clicked = pyqtSignal(int, object)
@@ -54,6 +68,9 @@ class PreviewPaneWidget(QWidget):
         left = (avail_w - total_w) // 2 if avail_w > total_w else 0
         top = (avail_h - total_h) // 2 if avail_h > total_h else 0
 
+        # Get the latest radius from settings
+        corner_radius = load_current_corner_radius()
+
         idx = 0
         for row in range(self.rows):
             for col in range(self.cols):
@@ -61,16 +78,17 @@ class PreviewPaneWidget(QWidget):
                     break
                 x = left + col * (label_w_px + gap_px)
                 y = top + row * (label_h_px + gap_px)
-                # Draw selection highlight border (now matches label rounding)
+                # Draw selection highlight border with dynamic radius
                 if idx in self.selected:
                     qp.save()
                     qp.setPen(QPen(QColor(70, 130, 255), 3))
                     qp.setBrush(Qt.NoBrush)
                     qp.drawRoundedRect(x, y, label_w_px, label_h_px,
-                                      LABEL_CORNER_RADIUS, LABEL_CORNER_RADIUS)
+                                      corner_radius, corner_radius)
                     qp.restore()
-                # Draw the label itself using universal drawing function!
-                draw_label_preview(qp, x, y, label_w_px, label_h_px, self.labels[idx], scale=PREVIEW_LABEL_SCALE)
+                # Draw the label itself using universal drawing function, with dynamic radius
+                draw_label_preview(qp, x, y, label_w_px, label_h_px, self.labels[idx],
+                                  scale=PREVIEW_LABEL_SCALE, corner_radius=corner_radius)
                 idx += 1
 
     def mousePressEvent(self, event):

@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 
 from left_pane import LeftPaneWidget
-from preview_pane import PreviewPaneWidget
+from preview_pane import PREVIEW_LABEL_SCALE, PreviewPaneWidget
 
 from currency_manager import CurrencyManager
 from session_manager import SessionManager
@@ -274,7 +274,12 @@ class LabelSheetEditor(QWidget):
         dialog = QPrintDialog(printer, self)
         if dialog.exec_() == QPrintDialog.Accepted:
             painter = QPainter(printer)
-            self.render_sheet(painter, printer.resolution())
+            # === Load print font scale live from calibration ===
+            settings = load_sheet_settings()
+            params = settings.get("params", {})
+            base_print_scale = float(params.get("print_font_scale", 12.0))
+            print_font_scale = base_print_scale / PREVIEW_LABEL_SCALE
+            self.render_sheet(painter, printer.resolution(), print_font_scale=print_font_scale)
             painter.end()
 
     def do_export_pdf(self):
@@ -287,11 +292,16 @@ class LabelSheetEditor(QWidget):
         pdf.setPageSize(QPagedPaintDevice.A4)
         pdf.setResolution(300)
         painter = QPainter(pdf)
-        self.render_sheet(painter, 300)
+        # === Load print font scale live from calibration ===
+        settings = load_sheet_settings()
+        params = settings.get("params", {})
+        base_print_scale = float(params.get("print_font_scale", 12.0))
+        print_font_scale = base_print_scale / PREVIEW_LABEL_SCALE
+        self.render_sheet(painter, 300, print_font_scale=print_font_scale)
         painter.end()
         QMessageBox.information(self, "Успех", "PDF файлът е запазен успешно.")
 
-    def render_sheet(self, qp, dpi):
+    def render_sheet(self, qp, dpi, print_font_scale=1.0):
         settings = load_sheet_settings()
         params = settings.get("params", {})
         hw_left = float(params.get('hw_left', 0))
@@ -316,8 +326,6 @@ class LabelSheetEditor(QWidget):
 
         # Correct: always read font_scale_factor from the ROOT of settings!
         font_scale_factor = float(settings.get("font_scale_factor", 1.0))
-
-        print("skip_hw_margin =", skip_hw_margin, "hw_left =", hw_left, "hw_top =", hw_top, "font_scale_factor =", font_scale_factor)
 
         px_per_mm = dpi / 25.4 * scale_correction
         page_w_px = round(page_w * px_per_mm)
@@ -346,9 +354,9 @@ class LabelSheetEditor(QWidget):
                     qp.setBrush(Qt.NoBrush)
                     qp.drawRect(x, y, w, h)
                     qp.restore()
-                draw_label_print(qp, x, y, w, h, self.labels[idx], font_scale=font_scale_factor)
+                # --- Increase padding for all labels (10px times scale) ---
+                draw_label_print(qp, x, y, w, h, self.labels[idx], font_scale=print_font_scale, scale=1.0, corner_radius=float(params.get('corner_radius', 2.5)), margin=30)
                 idx += 1
-
 
 if __name__ == "__main__":
     from PyQt5.QtGui import QFontDatabase

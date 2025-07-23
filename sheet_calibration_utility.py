@@ -71,7 +71,8 @@ class SheetPreview(QWidget):
         row_gap = p['row_gap']
         rows = p['rows']
         cols = p['cols']
-        corner_radius = 2.5 if t['rounded'] else 0
+        # Use the custom corner radius value from params, fallback to 2.5 if not set
+        corner_radius = float(p.get('corner_radius', 2.5))
 
         cal_square = t.get('cal_square', False)
         cal_square_size = 10.0
@@ -110,31 +111,24 @@ class SheetPreview(QWidget):
         if t.get('ruler', True):
             ruler_font = QFont("Arial", 20, QFont.Bold)
             painter.setFont(ruler_font)
-            # A4 label, top left, outside page border
             page_x, page_y = mm_to_px(0, 0)
             painter.setPen(QPen(QColor("#888"), 2))
             a4_label = "A4"
             painter.drawText(int(page_x) - 34, int(page_y) - 14, a4_label)
-            # Draw 210mm at bottom center, 297mm at right center (outside page)
             dim_font = QFont("Arial", 11)
             painter.setFont(dim_font)
             page_x2, page_y2 = mm_to_px(page_w_mm, 0)
-            # bottom (horizontal dimension)
             painter.drawText(
                 int(page_x + (page_x2 - page_x) / 2) - 30,
                 int(page_y + page_h_mm * MM_TO_PX * scale) + 28,
                 "210mm"
             )
-            # right (vertical dimension)
             painter.save()
             painter.translate(int(page_x2) + 12, int(page_y + (page_h_mm * MM_TO_PX * scale) / 2) + 30)
             painter.rotate(-90)
             painter.drawText(0, 10, "297mm")
             painter.restore()
-
-            # Tick marks (just outside the main rectangle)
             painter.setPen(QPen(QColor("#aaa"), 1))
-            # Top edge
             for mm in range(0, int(page_w_mm) + 1):
                 x = page_x + mm * MM_TO_PX * scale
                 if mm % 10 == 0:
@@ -143,7 +137,6 @@ class SheetPreview(QWidget):
                     painter.drawLine(int(x), int(page_y) - 11, int(x), int(page_y))
                 else:
                     painter.drawLine(int(x), int(page_y) - 5, int(x), int(page_y))
-            # Left edge
             for mm in range(0, int(page_h_mm) + 1):
                 y = page_y + mm * MM_TO_PX * scale
                 if mm % 10 == 0:
@@ -247,7 +240,6 @@ class CalibrationTab(QWidget):
             'grid': True,
             'crosshairs': True,
             'ruler': True,
-            'rounded': False,
             'cal_square': False,
             'show_hw_margin': True
         }
@@ -257,10 +249,13 @@ class CalibrationTab(QWidget):
             self.toggles.update(loaded.get("toggles", {}))
         if "user_scale_factor" not in self.params:
             self.params["user_scale_factor"] = 1.0
+        if "print_font_scale" not in self.params:
+            self.params["print_font_scale"] = 12.0
+        if "corner_radius" not in self.params:
+            self.params["corner_radius"] = 2.5
         self.init_ui()
         self.update_helper_labels()
         loaded = load_sheet_settings()
-
     def default_params(self):
         return {
             'hw_left': 5.0, 'hw_top': 5.0, 'hw_right': 5.0, 'hw_bottom': 5.0,
@@ -269,16 +264,16 @@ class CalibrationTab(QWidget):
             'label_w': 63.5, 'label_h': 38.1,
             'col_gap': 3.4, 'row_gap': 0.0,
             'rows': 7, 'cols': 3,
+            'print_font_scale': 12.0,
+            'corner_radius': 2.5,
         }
 
     def save_settings(self):
-        # Load any existing settings, or start with empty dict
         current = load_sheet_settings() or {}
-        # Update just the keys you manage
         current["params"] = self.params
         current["toggles"] = self.toggles
-        current["skip_hw_margin"] = self.chk_skip_hw_margin.isChecked()
-        # Save all keys (including unknown extras)
+        if hasattr(self, "chk_skip_hw_margin"):
+            current["skip_hw_margin"] = self.chk_skip_hw_margin.isChecked()
         save_sheet_settings(current)
 
     def update_helper_labels(self):
@@ -291,7 +286,7 @@ class CalibrationTab(QWidget):
         main_h = QHBoxLayout(self)
         controls = QVBoxLayout()
 
-        # 1. Paper size dropdown (future-proof, single option for now)
+        # Paper size dropdown
         self.cb_page_size = QComboBox()
         self.cb_page_size.addItem("A4 International (210x297mm)")
         self.cb_page_size.setCurrentIndex(0)
@@ -344,13 +339,13 @@ class CalibrationTab(QWidget):
         gb_sheet.setLayout(l_sheet)
         controls.addWidget(gb_sheet)
 
-        # 4. Offset reporting labels
+        # Offset reporting labels
         self.lbl_left_offset = QLabel()
         self.lbl_top_offset = QLabel()
         controls.addWidget(self.lbl_left_offset)
         controls.addWidget(self.lbl_top_offset)
 
-        # 5. Label size group ("Размер на етикета")
+        # Label size group
         gb_labels = QGroupBox("Размер на етикета (mm)")
         l_labels = QVBoxLayout(gb_labels)
         l_row1 = QHBoxLayout()
@@ -360,14 +355,24 @@ class CalibrationTab(QWidget):
         l_row1.addWidget(QLabel("Височина:")); l_row1.addWidget(self.sp_h)
         l_row1.addStretch(1)
         l_labels.addLayout(l_row1)
-        self.chk_rounded = QCheckBox("Заоблени ъгли на етикетите"); self.chk_rounded.setChecked(self.toggles['rounded'])
-        l_labels.addWidget(self.chk_rounded)
+        # Corner radius spinner
+        l_row2 = QHBoxLayout()
+        self.sp_corner_radius = QDoubleSpinBox()
+        self.sp_corner_radius.setRange(0, 20)
+        self.sp_corner_radius.setDecimals(2)
+        self.sp_corner_radius.setSingleStep(0.1)
+        self.sp_corner_radius.setValue(self.params.get("corner_radius", 2.5))
+        self.sp_corner_radius.setMaximumWidth(80)
+        l_row2.addWidget(QLabel("Радиус на ъгли (mm):"))
+        l_row2.addWidget(self.sp_corner_radius)
+        l_row2.addStretch(1)
+        l_labels.addLayout(l_row2)
+        self.sp_corner_radius.valueChanged.connect(lambda val: self.update_param('corner_radius', float(val)))
         self.sp_w.valueChanged.connect(lambda val: self.update_param('label_w', float(val)))
         self.sp_h.valueChanged.connect(lambda val: self.update_param('label_h', float(val)))
-        self.chk_rounded.stateChanged.connect(lambda _: self.toggle_overlay('rounded'))
         controls.addWidget(gb_labels)
 
-        # 6. Rows/cols/gaps group
+        # Rows/cols/gaps group
         gb_rc = QGroupBox("Брой редове и колони")
         l_rc = QHBoxLayout(gb_rc)
         l_rc.setSpacing(8)
@@ -386,7 +391,21 @@ class CalibrationTab(QWidget):
         self.sp_rgap.valueChanged.connect(lambda val: self.update_param('row_gap', float(val)))
         controls.addWidget(gb_rc)
 
-        # 7. Visual helpers group
+        # PRINT FONT SCALE SPINNER
+        l_font_scale = QHBoxLayout()
+        self.sp_print_font_scale = QDoubleSpinBox()
+        self.sp_print_font_scale.setRange(2.0, 30.0)
+        self.sp_print_font_scale.setDecimals(2)
+        self.sp_print_font_scale.setSingleStep(0.1)
+        self.sp_print_font_scale.setValue(self.params.get("print_font_scale", 12.0))
+        self.sp_print_font_scale.setMaximumWidth(80)
+        l_font_scale.addWidget(QLabel("Print Font Scale (Advanced):"))
+        l_font_scale.addWidget(self.sp_print_font_scale)
+        l_font_scale.addStretch(1)
+        controls.addLayout(l_font_scale)
+        self.sp_print_font_scale.valueChanged.connect(lambda val: self.update_param('print_font_scale', float(val)))
+
+        # Visual helpers group
         gb_vis = QGroupBox("Визуални помощници")
         l_vis = QVBoxLayout(gb_vis)
         self.chk_ruler = QCheckBox("Линийка"); self.chk_ruler.setChecked(self.toggles['ruler'])
@@ -449,7 +468,7 @@ class CalibrationTab(QWidget):
         help_note.setStyleSheet("color: #333; font-size:11px; padding-bottom: 6px;")
         controls.addWidget(help_note)
 
-        # HW margin skip checkbox, correctly placed
+        # HW margin skip checkbox
         self.chk_skip_hw_margin = QCheckBox("Пропусни хардуерния марж при печат/PDF (за печат без бели полета)")
         self.chk_skip_hw_margin.setChecked(False)
         controls.addWidget(self.chk_skip_hw_margin)
@@ -513,7 +532,6 @@ class CalibrationTab(QWidget):
         toggle_names = {
             "ruler": "chk_ruler",
             "grid": "chk_grid",
-            "rounded": "chk_rounded",
             "cal_square": "chk_cal_square",
             "crosshairs": "chk_crosses",
             "show_hw_margin": "chk_hw_margin",
@@ -531,7 +549,6 @@ class CalibrationTab(QWidget):
         printer.print_sheet(self.preview, self)
         self.preview.rendering_for_print = False
 
-    
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
