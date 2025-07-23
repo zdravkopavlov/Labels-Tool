@@ -178,10 +178,14 @@ class LabelSheetEditor(QWidget):
         from PyQt5.QtWidgets import QMenu
         menu = QMenu(self)
         copy_action = menu.addAction("Копирай Етикет")
-        copystyle_action = menu.addAction("Копирай форматиране")
+        copystyle_action = menu.addAction("Копирай Стил")
+        menu.addSeparator()
         paste_action = menu.addAction("Постави")
+        menu.addSeparator()
+        delete_action = menu.addAction("Изчисти")
         action = menu.exec_(self.preview_pane.mapToGlobal(event.pos()))
         sel = self.selected
+
         if action == copy_action:
             self.clipboard = {k: self.labels[idx][k].copy() for k in self.labels[idx]}
             self.clipboard_style = None
@@ -199,6 +203,11 @@ class LabelSheetEditor(QWidget):
                         for sk, vv in self.clipboard_style[k].items():
                             self.labels[idx2][k][sk] = vv
             self.update_edit_panel_from_selection()
+        elif action == delete_action:
+            for idx2 in sel:
+                self.labels[idx2] = blank_label()
+            self.update_edit_panel_from_selection()
+
         self.session_manager.save_session()
         self.refresh_preview()
 
